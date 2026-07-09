@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: abl-postgres
+    environment:
+      POSTGRES_DB: abl
+      POSTGRES_USER: abl
+      POSTGRES_PASSWORD: abl_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U abl -d abl"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: abl-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # API в контейнере — по профилю "full" (по умолчанию поднимаются только БД и шина,
+  # API удобнее запускать локально: uvicorn api.main:app --reload)
+  api:
+    build: .
+    container_name: abl-api
+    profiles: ["full"]
+    environment:
+      ABL_DATABASE_URL: postgresql://abl:abl_dev_password@postgres:5432/abl
+      ABL_REDIS_URL: redis://redis:6379/0
+      ABL_JWT_SECRET: change-me
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Спайк T-28: фрагмент процесса "Защита ВКР" — задача с двумя граничными таймерами:
+     PT2S non-interrupting = напоминание (Контролер), PT4S interrupting = эскалация.
+     В реальной модели длительности будут "P7D"/"P14D"; секунды - только для теста. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_spike" targetNamespace="http://adaptive-bpm-loop/spike">
+  <bpmn:process id="spike_vkr_fragment" isExecutable="true">
+
+    <bpmn:startEvent id="start"/>
+    <bpmn:sequenceFlow id="f0" sourceRef="start" targetRef="init"/>
+
+    <bpmn:scriptTask id="init" name="Инициализация">
+      <bpmn:script>reminder_fired = False
+escalated = False
+task_done = False</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f1" sourceRef="init" targetRef="prepare_order"/>
+
+    <bpmn:userTask id="prepare_order" name="Подготовить приказ о допуске"/>
+
+    <bpmn:boundaryEvent id="remind_timer" attachedToRef="prepare_order" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"PT2S"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:boundaryEvent id="escalate_timer" attachedToRef="prepare_order" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"PT4S"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:sequenceFlow id="f2" sourceRef="remind_timer" targetRef="remind"/>
+    <bpmn:scriptTask id="remind" name="Напоминание исполнителю">
+      <bpmn:script>reminder_fired = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f3" sourceRef="remind" targetRef="end_remind"/>
+    <bpmn:endEvent id="end_remind"/>
+
+    <bpmn:sequenceFlow id="f4" sourceRef="escalate_timer" targetRef="escalate"/>
+    <bpmn:scriptTask id="escalate" name="Эскалация заведующему кафедрой">
+      <bpmn:script>escalated = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f5" sourceRef="escalate" targetRef="end_escalate"/>
+    <bpmn:endEvent id="end_escalate"/>
+
+    <bpmn:sequenceFlow id="f6" sourceRef="prepare_order" targetRef="finish"/>
+    <bpmn:scriptTask id="finish" name="Фиксация выполнения">
+      <bpmn:script>task_done = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f7" sourceRef="finish" targetRef="end_main"/>
+    <bpmn:endEvent id="end_main"/>
+
+  </bpmn:process>
+</bpmn:definitions>

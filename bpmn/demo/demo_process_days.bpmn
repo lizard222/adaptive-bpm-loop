@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Демо-модель для генератора синтетических журналов (T-35): таймеры в
+     нормативном масштабе (дни), а не в секундах — как будут устроены
+     реальные модели кафедры (T-22/T-23). Структура идентична
+     bpmn/demo/demo_process.bpmn (использованному в смоук-тестах B1-B4). -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_demo_days" targetNamespace="http://adaptive-bpm-loop/demo-days">
+  <bpmn:process id="demo_process_days" isExecutable="true">
+
+    <bpmn:startEvent id="start"/>
+    <bpmn:sequenceFlow id="f0" sourceRef="start" targetRef="auto_step"/>
+
+    <bpmn:scriptTask id="auto_step" name="Автоматическая подготовка">
+      <bpmn:script>prepared = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f1" sourceRef="auto_step" targetRef="review_request"/>
+
+    <bpmn:userTask id="review_request" name="Рассмотреть заявку"/>
+
+    <bpmn:boundaryEvent id="remind_timer" attachedToRef="review_request" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"P7D"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f2" sourceRef="remind_timer" targetRef="remind"/>
+    <bpmn:scriptTask id="remind" name="Напоминание">
+      <bpmn:script>reminder_sent = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f3" sourceRef="remind" targetRef="end_remind"/>
+    <bpmn:endEvent id="end_remind"/>
+
+    <bpmn:boundaryEvent id="escalate_timer" attachedToRef="review_request" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"P14D"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f5" sourceRef="escalate_timer" targetRef="escalate"/>
+    <bpmn:scriptTask id="escalate" name="Эскалация">
+      <bpmn:script>escalated = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f6" sourceRef="escalate" targetRef="end_escalate"/>
+    <bpmn:endEvent id="end_escalate"/>
+
+    <bpmn:sequenceFlow id="f4" sourceRef="review_request" targetRef="end_main"/>
+    <bpmn:endEvent id="end_main"/>
+
+  </bpmn:process>
+</bpmn:definitions>

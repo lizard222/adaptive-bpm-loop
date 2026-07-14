@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Спайк: таймер в нормативном масштабе (14 дней), а не в секундах. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_clock_spike" targetNamespace="http://adaptive-bpm-loop/spike/clock">
+  <bpmn:process id="long_timer" isExecutable="true">
+    <bpmn:startEvent id="start"/>
+    <bpmn:sequenceFlow id="f0" sourceRef="start" targetRef="wait_task"/>
+    <bpmn:userTask id="wait_task" name="Ожидание исполнителя"/>
+    <bpmn:boundaryEvent id="remind_timer" attachedToRef="wait_task" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"P14D"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="remind_timer" targetRef="remind_14d"/>
+    <bpmn:scriptTask id="remind_14d" name="Напоминание через 14 дней">
+      <bpmn:script>reminded = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f2" sourceRef="remind_14d" targetRef="end_remind"/>
+    <bpmn:endEvent id="end_remind"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="wait_task" targetRef="end_main"/>
+    <bpmn:endEvent id="end_main"/>
+  </bpmn:process>
+</bpmn:definitions>

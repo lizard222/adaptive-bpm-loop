@@ -12,6 +12,7 @@ spikes/serialization_spike/FINDINGS.md) и пишет событие в event_lo
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
@@ -64,6 +65,10 @@ class Orchestrator:
     def __init__(self, database_url: str):
         self._database_url = database_url
 
+    @property
+    def database_url(self) -> str:
+        return self._database_url
+
     def _connect(self) -> psycopg.Connection:
         return psycopg.connect(self._database_url)
 
@@ -101,12 +106,19 @@ class Orchestrator:
         resource: str | None = None,
         attributes: dict | None = None,
     ) -> None:
+        # ts берём явно из Python (datetime.now), а не из DEFAULT now() в схеме
+        # PostgreSQL: под управляемыми часами (freezegun — генератор T-35,
+        # spikes/sim_clock_spike/FINDINGS.md) время БД остаётся реальным, и
+        # DEFAULT now() испортил бы весь смысл симуляции, слепив все события
+        # в одну реальную метку времени. Для обычной (не симулированной) работы
+        # оркестратора/агентов эффект тот же, что и раньше — реальное время.
         conn.execute(
             """
-            INSERT INTO event_log (case_id, process_key, activity, lifecycle, resource, attributes)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO event_log (case_id, process_key, activity, lifecycle, resource, attributes, ts)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
-            (case_id, process_key, activity, lifecycle, resource, psycopg.types.json.Json(attributes or {})),
+            (case_id, process_key, activity, lifecycle, resource, psycopg.types.json.Json(attributes or {}),
+             datetime.now(timezone.utc)),
         )
 
     def _log_transitions(

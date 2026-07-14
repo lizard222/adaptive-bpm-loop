@@ -7,5 +7,6 @@ python-multipart>=0.0.9
 psycopg[binary]>=3.2
 redis>=5.0
 
-# BPMN-движок (спайк T-28, далее — оркестратор T-31)
+# BPMN-движок (спайк T-28, оркестратор T-31)
 SpiffWorkflow>=3.1
+lxml>=5.0

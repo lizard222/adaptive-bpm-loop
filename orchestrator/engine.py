@@ -133,7 +133,7 @@ class Orchestrator:
     # ---------- публичный API ----------
 
     def start_instance(self, case_id: str, process_key: str, bpmn_file: Path, process_id: str | None = None,
-                        initial_data: dict | None = None) -> None:
+                        initial_data: dict | None = None, attributes: dict | None = None) -> None:
         spec = load_spec(bpmn_file, process_id)
         wf = BpmnWorkflow(spec)
         if initial_data:
@@ -142,7 +142,7 @@ class Orchestrator:
         wf.do_engine_steps()
         with self._connect() as conn:
             self._log_event(conn, case_id, process_key, "process_instance", lifecycle="start",
-                             resource="orchestrator")
+                             resource="orchestrator", attributes=attributes)
             self._log_transitions(conn, case_id, process_key, before, wf)
             self._persist(conn, case_id, process_key, wf)
             conn.commit()

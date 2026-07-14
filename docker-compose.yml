@@ -31,6 +31,20 @@ services:
       timeout: 3s
       retries: 10
 
+  prosody:
+    image: prosody/prosody:latest
+    container_name: abl-prosody
+    volumes:
+      - ./infra/prosody/prosody.cfg.lua:/etc/prosody/prosody.cfg.lua:ro
+      - prosodydata:/var/lib/prosody
+    ports:
+      - "5222:5222"   # c2s — сюда подключаются агенты SPADE (jid@localhost)
+    healthcheck:
+      test: ["CMD", "prosodyctl", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # API в контейнере — по профилю "full" (по умолчанию поднимаются только БД и шина,
   # API удобнее запускать локально: uvicorn api.main:app --reload)
   api:
@@ -52,3 +66,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  prosodydata:

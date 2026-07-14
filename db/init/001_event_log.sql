@@ -16,6 +16,11 @@ CREATE INDEX IF NOT EXISTS ix_event_log_case ON event_log (case_id);
 CREATE INDEX IF NOT EXISTS ix_event_log_ts   ON event_log (ts);
 
 -- Журнал неизменяем (ФТ-С-5.2): запрещаем UPDATE/DELETE на уровне БД.
+-- ВАЖНО: TRUNCATE этот триггер не перехватывает (в PostgreSQL TRUNCATE — не
+-- построчная операция, BEFORE DELETE на неё не срабатывает). Это осознанно
+-- оставлено как единственный путь очистки для dev/тестового окружения; если
+-- потребуется гарантия неизменяемости и от TRUNCATE, нужно дополнительно
+-- REVOKE TRUNCATE ON event_log FROM <роль приложения>.
 CREATE OR REPLACE FUNCTION forbid_event_log_mutation() RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION 'event_log is append-only (FT-S-5.2)';

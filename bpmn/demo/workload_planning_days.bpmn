@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Демо-модель ВТОРОГО процесса для B6/T-38 ("Планирование учебной нагрузки"
+     по духу, не по букве — реальная модель кафедры появится с T-23).
+     Отличается от demo_process_days.bpmn структурно: ДВЕ последовательные
+     контрольные точки (calculate_load, distribute_load), а не одна — нужно,
+     чтобы честно проверить, что оркестратор/конвейер/алгоритм корректировок
+     работают с несколькими контрольными точками ОДНОГО процесса, не только
+     с одной. Подключение — исключительно этот файл + новая запись в
+     mining/control_points.py; код orchestrator/agents/mining не менялся. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_workload_days" targetNamespace="http://adaptive-bpm-loop/demo-workload-days">
+  <bpmn:process id="workload_planning_days" isExecutable="true">
+
+    <bpmn:startEvent id="start"/>
+    <bpmn:sequenceFlow id="f0" sourceRef="start" targetRef="collect_requests"/>
+
+    <bpmn:scriptTask id="collect_requests" name="Сбор заявок на нагрузку">
+      <bpmn:script>collected = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f1" sourceRef="collect_requests" targetRef="calculate_load"/>
+
+    <bpmn:userTask id="calculate_load" name="Расчёт нагрузки"/>
+
+    <bpmn:boundaryEvent id="remind_calc_timer" attachedToRef="calculate_load" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"P5D"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f2" sourceRef="remind_calc_timer" targetRef="remind_calc"/>
+    <bpmn:scriptTask id="remind_calc" name="Напоминание: расчёт нагрузки">
+      <bpmn:script>reminded_calc = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f3" sourceRef="remind_calc" targetRef="end_remind_calc"/>
+    <bpmn:endEvent id="end_remind_calc"/>
+
+    <bpmn:boundaryEvent id="escalate_calc_timer" attachedToRef="calculate_load" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"P10D"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f4" sourceRef="escalate_calc_timer" targetRef="escalate_calc"/>
+    <bpmn:scriptTask id="escalate_calc" name="Эскалация: расчёт нагрузки">
+      <bpmn:script>escalated_calc = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f5" sourceRef="escalate_calc" targetRef="end_escalate_calc"/>
+    <bpmn:endEvent id="end_escalate_calc"/>
+
+    <bpmn:sequenceFlow id="f6" sourceRef="calculate_load" targetRef="distribute_load"/>
+    <bpmn:userTask id="distribute_load" name="Распределение нагрузки"/>
+
+    <bpmn:boundaryEvent id="remind_dist_timer" attachedToRef="distribute_load" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"P5D"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f7" sourceRef="remind_dist_timer" targetRef="remind_dist"/>
+    <bpmn:scriptTask id="remind_dist" name="Напоминание: распределение нагрузки">
+      <bpmn:script>reminded_dist = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f8" sourceRef="remind_dist" targetRef="end_remind_dist"/>
+    <bpmn:endEvent id="end_remind_dist"/>
+
+    <bpmn:boundaryEvent id="escalate_dist_timer" attachedToRef="distribute_load" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">"P10D"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f9" sourceRef="escalate_dist_timer" targetRef="escalate_dist"/>
+    <bpmn:scriptTask id="escalate_dist" name="Эскалация: распределение нагрузки">
+      <bpmn:script>escalated_dist = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f10" sourceRef="escalate_dist" targetRef="end_escalate_dist"/>
+    <bpmn:endEvent id="end_escalate_dist"/>
+
+    <bpmn:sequenceFlow id="f11" sourceRef="distribute_load" targetRef="end_main"/>
+    <bpmn:endEvent id="end_main"/>
+
+  </bpmn:process>
+</bpmn:definitions>

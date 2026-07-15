@@ -52,9 +52,18 @@ def run_cycle(
     n_instances: int,
     cycle_start: datetime,
     max_days: int,
+    reminder_activities: tuple[str, ...] = ("remind",),
+    escalation_activities: tuple[str, ...] = ("escalate",),
 ) -> CycleReport:
     """Запускает n_instances экземпляров процесса в один виртуальный день и
-    прогоняет их до max_days виртуальных суток включительно."""
+    прогоняет их до max_days виртуальных суток включительно.
+
+    reminder_activities/escalation_activities — имена активностей-таймеров
+    для итогового отчёта (по умолчанию — как в demo_process_days.bpmn с одной
+    контрольной точкой; для процессов с несколькими контрольными точками,
+    например bpmn/demo/workload_planning_days.bpmn, нужно передать полный
+    список: без этого счётчики reminders/escalations в CycleReport будут
+    молча нулевыми — найдено при подключении второго процесса, B6/T-38."""
     case_ids: list[str] = []
 
     with freeze_time(cycle_start) as frozen:
@@ -85,10 +94,14 @@ def run_cycle(
                     if scheduled[key] == day:
                         orch.complete_task(case_id, task["name"], resource="synthetic")
 
-    return _collect_report(orch, process_key, case_ids)
+    return _collect_report(orch, process_key, case_ids, reminder_activities, escalation_activities)
 
 
-def _collect_report(orch: Orchestrator, process_key: str, case_ids: list[str]) -> CycleReport:
+def _collect_report(
+    orch: Orchestrator, process_key: str, case_ids: list[str],
+    reminder_activities: tuple[str, ...] = ("remind",),
+    escalation_activities: tuple[str, ...] = ("escalate",),
+) -> CycleReport:
     states = {c: orch.get_state(c) for c in case_ids}
     completed_ids = [c for c, s in states.items() if s["completed"]]
 
@@ -98,13 +111,13 @@ def _collect_report(orch: Orchestrator, process_key: str, case_ids: list[str]) -
         # него счётчики задвоились бы событиями чужого прогона.
         reminders = conn.execute(
             "SELECT count(*) FROM event_log WHERE process_key=%s AND case_id = ANY(%s) "
-            "AND activity='remind' AND lifecycle='completed'",
-            (process_key, case_ids),
+            "AND activity = ANY(%s) AND lifecycle='completed'",
+            (process_key, case_ids, list(reminder_activities)),
         ).fetchone()[0]
         escalations = conn.execute(
             "SELECT count(*) FROM event_log WHERE process_key=%s AND case_id = ANY(%s) "
-            "AND activity='escalate' AND lifecycle='completed'",
-            (process_key, case_ids),
+            "AND activity = ANY(%s) AND lifecycle='completed'",
+            (process_key, case_ids, list(escalation_activities)),
         ).fetchone()[0]
         rows = conn.execute(
             """

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Спайк для D1/T-50: можно ли задавать длительность таймера ЧЕРЕЗ ПЕРЕМЕННУЮ
+     ПРОЦЕССА (reminder_days), а не как константу в XML? Нужно, чтобы контур
+     адаптации мог менять нормативные сроки между циклами БЕЗ переписывания
+     BPMN-файла — просто передавая другое initial_data в start_instance. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_param_spike" targetNamespace="http://adaptive-bpm-loop/spike/param-timer">
+  <bpmn:process id="param_timer" isExecutable="true">
+    <bpmn:startEvent id="start"/>
+    <bpmn:sequenceFlow id="f0" sourceRef="start" targetRef="wait_task"/>
+    <bpmn:userTask id="wait_task" name="Ожидание исполнителя"/>
+    <bpmn:boundaryEvent id="remind_timer" attachedToRef="wait_task" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{reminder_days}D'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="remind_timer" targetRef="remind"/>
+    <bpmn:scriptTask id="remind" name="Напоминание">
+      <bpmn:script>reminded = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f2" sourceRef="remind" targetRef="end_remind"/>
+    <bpmn:endEvent id="end_remind"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="wait_task" targetRef="end_main"/>
+    <bpmn:endEvent id="end_main"/>
+  </bpmn:process>
+</bpmn:definitions>

@@ -54,6 +54,7 @@ def run_cycle(
     max_days: int,
     reminder_activities: tuple[str, ...] = ("remind",),
     escalation_activities: tuple[str, ...] = ("escalate",),
+    initial_data: dict | None = None,
 ) -> CycleReport:
     """Запускает n_instances экземпляров процесса в один виртуальный день и
     прогоняет их до max_days виртуальных суток включительно.
@@ -63,13 +64,19 @@ def run_cycle(
     контрольной точкой; для процессов с несколькими контрольными точками,
     например bpmn/demo/workload_planning_days.bpmn, нужно передать полный
     список: без этого счётчики reminders/escalations в CycleReport будут
-    молча нулевыми — найдено при подключении второго процесса, B6/T-38."""
+    молча нулевыми — найдено при подключении второго процесса, B6/T-38.
+
+    initial_data — параметры процесса, одинаковые для всех экземпляров цикла
+    (например, reminder_days/escalation_days для параметризованных таймеров
+    модели эксперимента — spikes/param_timer_spike/FINDINGS.md, D1/T-50).
+    Контур адаптации между циклами эксперимента передаёт сюда обновлённые
+    значения, не переписывая BPMN-файл."""
     case_ids: list[str] = []
 
     with freeze_time(cycle_start) as frozen:
         for i in range(n_instances):
             case_id = f"{process_key}-{cycle_start:%Y%m%d}-{i:04d}-{uuid.uuid4().hex[:4]}"
-            orch.start_instance(case_id, process_key, bpmn_file, process_id)
+            orch.start_instance(case_id, process_key, bpmn_file, process_id, initial_data=initial_data)
             case_ids.append(case_id)
 
         # (case_id, имя задачи) -> день выполнения синтетическим исполнителем,

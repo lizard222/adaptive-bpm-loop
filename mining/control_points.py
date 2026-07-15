@@ -32,3 +32,10 @@ WORKLOAD_CONTROL_POINTS = [
     ControlPoint(task="calculate_load", reminder_activity="remind_calc", escalation_activity="escalate_calc"),
     ControlPoint(task="distribute_load", reminder_activity="remind_dist", escalation_activity="escalate_dist"),
 ]
+
+# Модель эксперимента (bpmn/demo/experiment_process.bpmn, D1-D3/T-50-T-51) —
+# длительности таймеров параметризованы (reminder_days/escalation_days),
+# контрольная точка та же, что у demo_process_days структурно.
+EXPERIMENT_CONTROL_POINTS = [
+    ControlPoint(task="review_request", reminder_activity="remind", escalation_activity="escalate"),
+]

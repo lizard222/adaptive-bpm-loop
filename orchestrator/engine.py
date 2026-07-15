@@ -149,7 +149,16 @@ class Orchestrator:
         spec = load_spec(bpmn_file, process_id)
         wf = BpmnWorkflow(spec)
         if initial_data:
-            wf.data.update(initial_data)
+            # НЕ wf.data: Task.__init__ инициализирует task.data = {} безусловно,
+            # никак не читая workflow.data (единственная связь между ними —
+            # одностороннее слияние в обратную сторону при завершении процесса,
+            # см. spikes/param_timer_spike/FINDINGS.md). Значения, важные для
+            # исполнения (например, для Python-выражений в timeDuration
+            # граничных таймеров — ФТ-С-6.3, контур адаптации меняет
+            # нормативные сроки как параметры процесса), нужно класть в
+            # task_tree.data: дочерние задачи наследуют его через deepcopy при
+            # создании.
+            wf.task_tree.data.update(initial_data)
         before = _snapshot(wf)
         wf.do_engine_steps()
         with self._connect() as conn:

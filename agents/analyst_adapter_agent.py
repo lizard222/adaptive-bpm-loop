@@ -18,13 +18,18 @@ mining/corrections.py), предъявляет предложения уполн
     подтверждения; для имитационного эксперимента, где эмулировать решение
     человека не нужно.
 
-Хранилище версий (applied_corrections) — минимальный эквивалент
-версионируемой process_params (полная схема — задача T-25): версия
-закрепляется за циклом анализа целиком, не за отдельным параметром.
-Использование этих версий Планировщиком/Контролером для реального изменения
-расписания/контрольных точек — следующий шаг после T-25; здесь агент только
-уведомляет их (ФТ-А-А-4), само чтение/применение готового изменения в
-поведении этих двух агентов не реализовано.
+Хранилище версий: applied_corrections (T-42) — журнал ИСТОРИИ применённых
+корректировок; process_params_current (E3) — СОСТОЯНИЕ, одна строка на
+процесс с параметрами, действующими прямо сейчас. Оба обновляются здесь при
+применении корректировок (agents/params_store.py — переиспользует тот же
+маппинг «корректировка → параметр», что уже проверен в offline-эксперименте,
+experiment/params.apply_corrections). Планировщик (T-33) реально читает
+process_params_current перед каждым запуском экземпляра — контур адаптации
+теперь замкнут и в живой системе, не только в эксперименте (E3 закрывает
+пробел, найденный при подготовке фазы E). Контролер пока только принимает
+уведомление (см. agents/controller_agent.py) — динамическое добавление
+новых контрольных точек из add_checkpoint корректировок не реализовано,
+задокументировано отдельно.
 """
 from __future__ import annotations
 
@@ -38,9 +43,12 @@ from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour
 from spade.message import Message
 
+from experiment.params import ProcessParams
 from mining.control_points import ControlPoint
 from mining.conveyor import ConveyorReport, analyze_cycle
 from mining.corrections import Correction, Thresholds, propose_corrections
+
+from .params_store import apply_and_store
 
 
 @dataclass
@@ -63,6 +71,7 @@ class AnalystAdapterAgent(Agent):
         notify_jids: list[str] | None = None,   # Планировщик/Контролер — FIPA inform о новой версии
         thresholds: Thresholds = Thresholds(),
         decision_timeout: float = 10.0,
+        default_params: ProcessParams = ProcessParams(reminder_days=7, escalation_days=14),
     ):
         super().__init__(jid, password)
         self.database_url = database_url
@@ -70,6 +79,7 @@ class AnalystAdapterAgent(Agent):
         self.notify_jids = notify_jids or []
         self.thresholds = thresholds
         self.decision_timeout = decision_timeout
+        self.default_params = default_params
         self.last_result: CycleAnalysisResult | None = None  # для наблюдения из тестов
 
     async def setup(self) -> None:
@@ -106,7 +116,9 @@ class AnalystAdapterAgent(Agent):
             )
             conn.commit()
 
-    def apply_corrections(self, process_key: str, accepted: list[Correction], mode: str) -> int:
+    def apply_corrections(
+        self, process_key: str, accepted: list[Correction], mode: str,
+    ) -> tuple[int, ProcessParams]:
         with psycopg.connect(self.database_url) as conn:
             version = conn.execute(
                 "SELECT coalesce(max(version), 0) + 1 FROM applied_corrections WHERE process_key = %s",
@@ -121,7 +133,10 @@ class AnalystAdapterAgent(Agent):
                      psycopg.types.json.Json(c.evidence), c.justification),
                 )
             conn.commit()
-        return version
+        # process_params_current (E3) — состояние, реально читаемое Планировщиком;
+        # тот же маппинг «корректировка -> параметр», что и в эксперименте.
+        updated_params = apply_and_store(self.database_url, process_key, self.default_params, accepted, version)
+        return version, updated_params
 
 
 class _ProcessCycleBehaviour(OneShotBehaviour):
@@ -160,8 +175,8 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
 
         version = None
         if accepted:
-            version = agent.apply_corrections(self.process_key, accepted, self.mode)
-            await self._notify_new_version(version, accepted)
+            version, updated_params = agent.apply_corrections(self.process_key, accepted, self.mode)
+            await self._notify_new_version(version, accepted, updated_params)
 
         self.result = CycleAnalysisResult(
             process_key=self.process_key, report=report, proposed=corrections,
@@ -176,6 +191,7 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
             pending[thread] = c
             msg = Message(to=agent.recipient_jid)
             msg.set_metadata("performative", "propose")
+            msg.set_metadata("process_key", self.process_key)
             msg.set_metadata("kind", c.kind)
             msg.set_metadata("target", c.target)
             msg.thread = thread
@@ -198,12 +214,21 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
                 accepted.append(corr)
         return accepted
 
-    async def _notify_new_version(self, version: int, accepted: list[Correction]) -> None:
+    async def _notify_new_version(self, version: int, accepted: list[Correction], updated_params: ProcessParams) -> None:
         agent: AnalystAdapterAgent = self.agent
         summary = ", ".join(f"{c.kind}({c.target})" for c in accepted)
         for jid in agent.notify_jids:
             msg = Message(to=jid)
             msg.set_metadata("performative", "inform")
             msg.set_metadata("event", "process_params_updated")
-            msg.body = f"{self.process_key}: версия параметров v{version} — принято: {summary}"
+            msg.set_metadata("process_key", self.process_key)
+            msg.set_metadata("version", str(version))
+            # Получатель НЕ обязан доверять телу сообщения — он перечитывает
+            # process_params_current из БД сам (пуш — это триггер "проснись
+            # раньше срока", а не источник истины). Значения в теле — для
+            # человека/логов.
+            msg.body = (
+                f"{self.process_key}: версия параметров v{version} — принято: {summary}. "
+                f"reminder_days={updated_params.reminder_days}, escalation_days={updated_params.escalation_days}"
+            )
             await self.send(msg)

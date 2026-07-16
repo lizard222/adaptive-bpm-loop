@@ -9,16 +9,29 @@
 этом никаких действий за исполнителя (ФТ-А-К-5).
 
 watch_activities сопоставляет id BPMN-задачи со "смыслом" контрольной точки
-(например, {"remind": "напоминание", "escalate": "эскалация"}). Подключение
-новых контрольных точек, добавленных контуром адаптации (T-42), — это
-расширение словаря в рантайме; сам механизм подписки не меняется.
+(например, {"remind": "напоминание", "escalate": "эскалация"}).
+
+E3 (часть T-25) — статус ЧЕСТНО НЕ ПОЛНЫЙ, зафиксировано явно: Контролер
+теперь ПРИНИМАЕТ уведомление от Аналитик-Адаптера о новой версии параметров
+(ParamsListener) — раньше (до E3) не было вообще ни одного receive-поведения,
+уведомление уходило в никуда. Но ДИНАМИЧЕСКОЕ добавление новых контрольных
+точек из корректировок add_checkpoint (ФТ-А-К-4) не реализовано: сама
+Correction (mining/corrections.py) хранит только target — id пропущенного
+шага, а не reminder_activity/escalation_activity, которые нужны, чтобы
+собрать новую запись ControlPoint для watch_activities. Без этой информации
+в структуре корректировки автоматически расширить словарь нечем. Это
+следующий шаг после текущего E3, не сделанный здесь.
 """
 from __future__ import annotations
 
+import logging
+
 import psycopg
 from spade.agent import Agent
-from spade.behaviour import PeriodicBehaviour
+from spade.behaviour import CyclicBehaviour, PeriodicBehaviour
 from spade.message import Message
+
+logger = logging.getLogger("agents.controller")
 
 
 class ControllerAgent(Agent):
@@ -38,12 +51,31 @@ class ControllerAgent(Agent):
         self._tick_seconds = tick_seconds
         self._last_event_id = 0
         self.dispatched: list[dict] = []  # для наблюдения из тестов
+        self.received_notifications: list[dict] = []  # для наблюдения из тестов
 
     async def setup(self) -> None:
         with psycopg.connect(self._database_url) as conn:
             row = conn.execute("SELECT coalesce(max(event_id), 0) FROM event_log").fetchone()
             self._last_event_id = row[0]
         self.add_behaviour(self.Watch(period=self._tick_seconds))
+        self.add_behaviour(self.ParamsListener())
+
+    class ParamsListener(CyclicBehaviour):
+        """Приёмное поведение (E3): подтверждает уведомление от Аналитик-
+        Адаптера. См. докстринг модуля — динамическое расширение
+        watch_activities из него НЕ выполняется (не хватает данных в
+        Correction), поведение только логирует факт получения."""
+
+        async def run(self) -> None:
+            msg = await self.receive(timeout=5)
+            if msg is None or msg.get_metadata("event") != "process_params_updated":
+                return
+            self.agent.received_notifications.append({
+                "process_key": msg.get_metadata("process_key"),
+                "version": msg.get_metadata("version"),
+                "body": msg.body,
+            })
+            logger.info("Получено уведомление о новой версии параметров: %s", msg.body)
 
     class Watch(PeriodicBehaviour):
         async def run(self) -> None:

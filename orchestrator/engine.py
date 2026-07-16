@@ -192,8 +192,10 @@ class Orchestrator:
 
     def complete_task(self, case_id: str, task_name: str, data: dict | None = None,
                        resource: str | None = None) -> None:
-        """Выполняет READY-задачу по имени (заглушка ФТ-С-4: реальное назначение
-        через интерфейсных агентов — отдельная задача)."""
+        """Выполняет READY-задачу по имени. Вызывается напрямую из REST-слоя
+        (api/tasks.py, T-37) — назначение через FIPA не требуется для этого
+        потока: у READY-задачи нет "агента", ожидающего ответа, в отличие от
+        предложений корректировок (там мост — agents/interface_agent.py)."""
         with self._connect() as conn:
             wf, process_key = self._load(conn, case_id)
             ready = [t for t in wf.get_tasks(state=TaskState.READY) if t.task_spec.name == task_name]
@@ -223,3 +225,16 @@ class Orchestrator:
             ],
             "data": dict(wf.data),
         }
+
+    def list_active_case_ids(self, process_key: str | None = None) -> list[str]:
+        """Экземпляры со статусом 'active' (для кабинета задач, T-37: список
+        READY-задач по всем текущим экземплярам). Не самый дешёвый способ на
+        масштабе прод-системы (каждый case_id ниже придётся десериализовать
+        отдельно через get_state) — для прототипа достаточно."""
+        query = "SELECT case_id FROM process_instances WHERE status = 'active'"
+        params: tuple = ()
+        if process_key is not None:
+            query += " AND process_key = %s"
+            params = (process_key,)
+        with self._connect() as conn:
+            return [row[0] for row in conn.execute(query, params).fetchall()]

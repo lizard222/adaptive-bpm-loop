@@ -10,6 +10,15 @@
 находка спайка T-28) сделано частью того же периодического поведения, а не
 вынесено в отдельного агента: кто-то должен тикать регулярно, и Планировщик уже
 для этого просыпается.
+
+E3 (часть T-25): если у правила задан base_params (модель с параметризованными
+таймерами, spikes/param_timer_spike/), Планировщик перед КАЖДЫМ запуском читает
+process_params_current — актуальные параметры, обновляемые Аналитик-Адаптером
+(T-42) — и передаёт их в start_instance(initial_data=...). Чтение всегда
+свежее (pull), а не из кеша: агент переживает рестарт без потери состояния.
+Приёмное поведение (ParamsListener) не хранит состояние само — оно только
+подтверждает получение уведомления и логирует его; реальный эффект даёт
+свежее чтение на каждом тике, уведомление лишь протокольно ожидаемо (ФТ-А-А-4).
 """
 from __future__ import annotations
 
@@ -23,10 +32,13 @@ logger = logging.getLogger("agents.scheduler")
 
 import psycopg
 from spade.agent import Agent
-from spade.behaviour import PeriodicBehaviour
+from spade.behaviour import CyclicBehaviour, PeriodicBehaviour
 from spade.message import Message
 
+from experiment.params import ProcessParams
 from orchestrator import Orchestrator
+
+from .params_store import get_current_params
 
 
 @dataclass
@@ -36,6 +48,7 @@ class LaunchRule:
     process_id: str
     interval_seconds: float  # демо-эквивалент академического календаря (T-25)
     param_version: int = 1
+    base_params: ProcessParams | None = None  # None — модель без параметризованных таймеров
 
 
 class SchedulerAgent(Agent):
@@ -55,9 +68,11 @@ class SchedulerAgent(Agent):
         self._tick_seconds = tick_seconds
         self.orchestrator = Orchestrator(database_url)
         self.launched_case_ids: list[str] = []  # для наблюдения из тестов
+        self.received_notifications: list[dict] = []  # для наблюдения из тестов
 
     async def setup(self) -> None:
         self.add_behaviour(self.LaunchTick(period=self._tick_seconds))
+        self.add_behaviour(self.ParamsListener())
 
     def _last_launch_ts(self, conn: psycopg.Connection, process_key: str) -> float | None:
         row = conn.execute(
@@ -85,10 +100,17 @@ class SchedulerAgent(Agent):
 
             for rule in due:
                 case_id = f"{rule.process_key}-{uuid.uuid4().hex[:8]}"
+                initial_data = None
+                param_version = rule.param_version
+                if rule.base_params is not None:
+                    # Свежее чтение на каждом запуске (не кеш) — E3, см. докстринг модуля.
+                    current = get_current_params(agent._database_url, rule.process_key, rule.base_params)
+                    initial_data = current.as_initial_data()
                 try:
                     agent.orchestrator.start_instance(
                         case_id, rule.process_key, rule.bpmn_file, rule.process_id,
-                        attributes={"param_version": rule.param_version},
+                        initial_data=initial_data,
+                        attributes={"param_version": param_version, "initial_data": initial_data},
                     )
                     agent.launched_case_ids.append(case_id)
                 except Exception as exc:  # ФТ-А-П-4: отказ -> сообщение админу, повтор на следующем тике
@@ -98,3 +120,23 @@ class SchedulerAgent(Agent):
                         msg.set_metadata("performative", "refuse")
                         msg.body = f"Не удалось запустить {rule.process_key} ({case_id}): {exc}"
                         await self.send(msg)
+
+    class ParamsListener(CyclicBehaviour):
+        """Приёмное поведение (ФТ-А-А-4, E3): подтверждает уведомление от
+        Аналитик-Адаптера о новой версии параметров. Реальный эффект даёт не
+        это поведение само по себе, а свежее чтение process_params_current в
+        LaunchTick на каждом тике — уведомление лишь протокольно ожидаемо и
+        полезно для логов/наблюдаемости (агент не полагается на то, что оно
+        точно дойдёт: пропущенное уведомление не приведёт к устаревшим
+        параметрам, следующий тик всё равно перечитает БД)."""
+
+        async def run(self) -> None:
+            msg = await self.receive(timeout=5)
+            if msg is None or msg.get_metadata("event") != "process_params_updated":
+                return
+            self.agent.received_notifications.append({
+                "process_key": msg.get_metadata("process_key"),
+                "version": msg.get_metadata("version"),
+                "body": msg.body,
+            })
+            logger.info("Получено уведомление о новой версии параметров: %s", msg.body)

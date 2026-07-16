@@ -10,12 +10,16 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from .auth import CurrentUser, authenticate, create_token, get_current_user, require_role
 from .config import settings
+from .corrections import router as corrections_router
+from .tasks import router as tasks_router
 
 app = FastAPI(
     title="adaptive-bpm-loop",
     description="Адаптивное управление бизнес-процессами вуза: каркас прототипа",
     version="0.1.0",
 )
+app.include_router(tasks_router)
+app.include_router(corrections_router)
 
 
 @app.get("/", tags=["service"])
@@ -60,10 +64,3 @@ def me(user: CurrentUser = Depends(get_current_user)):
 def admin_ping(user: CurrentUser = Depends(require_role("admin"))):
     """Демонстрация ролевого доступа: только администратор."""
     return {"ok": True, "you": user.username}
-
-
-@app.get("/corrections/pending", tags=["demo"])
-def corrections_pending(user: CurrentUser = Depends(require_role("dept_head", "admin"))):
-    """Заглушка панели корректировок (ФТ-С-7.4): доступна завкафедрой и администратору.
-    Наполнение — после реализации Аналитика-Адаптера (T-42)."""
-    return {"pending": [], "note": "контур адаптации ещё не реализован (T-42)"}

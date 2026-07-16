@@ -23,3 +23,9 @@ freezegun>=1.5
 
 # Графики и таблицы результатов эксперимента (T-54)
 matplotlib>=3.8
+
+# Шаблонизатор (T-36)
+docxtpl>=0.19
+
+# Тесты REST-слоя через FastAPI TestClient (T-37)
+httpx>=0.27

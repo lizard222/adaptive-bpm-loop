@@ -29,6 +29,7 @@ from spade.agent import Agent
 from spade.behaviour import CyclicBehaviour
 from spade.message import Message
 
+from eventlog.documents import log_document_generated
 from templates.render import TEMPLATES, MissingFieldsError, missing_fields, render
 
 logger = logging.getLogger("agents.templater")
@@ -47,11 +48,7 @@ class TemplaterAgent(Agent):
 
     def _log_generated(self, case_id: str, process_key: str, template_name: str, out_path: Path) -> None:
         with psycopg.connect(self.database_url) as conn:
-            conn.execute(
-                "INSERT INTO event_log (case_id, process_key, activity, lifecycle, resource, attributes) "
-                "VALUES (%s, %s, 'document_generated', 'complete', 'templater', %s)",
-                (case_id, process_key, psycopg.types.json.Json({"template": template_name, "path": str(out_path)})),
-            )
+            log_document_generated(conn, case_id, process_key, template_name, out_path, resource="templater")
             conn.commit()
 
     class Serve(CyclicBehaviour):

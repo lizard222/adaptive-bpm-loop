@@ -11,6 +11,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from .auth import CurrentUser, authenticate, create_token, get_current_user, require_role
 from .config import settings
 from .corrections import router as corrections_router
+from .dashboard import router as dashboard_router
+from .documents import router as documents_router
 from .tasks import router as tasks_router
 
 app = FastAPI(
@@ -20,6 +22,8 @@ app = FastAPI(
 )
 app.include_router(tasks_router)
 app.include_router(corrections_router)
+app.include_router(dashboard_router)
+app.include_router(documents_router)
 
 
 @app.get("/", tags=["service"])

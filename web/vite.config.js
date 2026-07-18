@@ -12,6 +12,8 @@ export default defineConfig({
       "/auth": "http://localhost:8000",
       "/tasks": "http://localhost:8000",
       "/corrections": "http://localhost:8000",
+      "/dashboard": "http://localhost:8000",
+      "/documents": "http://localhost:8000",
       "/me": "http://localhost:8000",
     },
   },

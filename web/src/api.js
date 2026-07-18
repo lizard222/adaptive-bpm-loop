@@ -21,7 +21,11 @@ async function request(path, options = {}) {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail || detail;
+      if (body.detail && typeof body.detail === "object" && Array.isArray(body.detail.missing_fields)) {
+        detail = `не хватает полей: ${body.detail.missing_fields.join(", ")}`;
+      } else {
+        detail = body.detail || detail;
+      }
     } catch {
       /* тело не JSON — оставляем statusText */
     }
@@ -70,4 +74,43 @@ export function decideCorrection(id, decision) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ decision }),
   });
+}
+
+export function getDashboardSummary() {
+  return request("/dashboard/summary");
+}
+
+export function listDocumentTemplates() {
+  return request("/documents/templates");
+}
+
+export function generateDocument(payload) {
+  return request("/documents/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listDocuments() {
+  return request("/documents");
+}
+
+// Простая ссылка <a href> не понесёт токен — авторизация только через JS
+// fetch с Bearer-заголовком (см. комментарий вверху файла), не куки.
+export async function downloadDocument(id, suggestedFilename) {
+  const token = getToken();
+  const res = await fetch(`/documents/${id}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Не удалось скачать документ");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = suggestedFilename || `document_${id}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

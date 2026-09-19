@@ -37,7 +37,7 @@ def list_launchable(user: CurrentUser = Depends(require_role("dept_head", "secre
     """Что можно запустить вручную — реестр, а не произвольная строка с клиента."""
     return {
         "processes": [
-            {"process_key": key, "has_params": reg.default_params is not None}
+            {"process_key": key, "has_params": reg.default_params is not None, "kind": reg.kind}
             for key, reg in PROCESS_REGISTRY.items()
         ],
     }

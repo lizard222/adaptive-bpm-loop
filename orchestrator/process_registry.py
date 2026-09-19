@@ -34,6 +34,11 @@ class ProcessRegistration:
     process_id: str | None
     default_params: ProcessParams | None  # None — модель без параметризованных таймеров
     interval_seconds: float  # используется ТОЛЬКО для LaunchRule Планировщика
+    # "real" — попадает на "боевой" дашборд (api/dashboard.py::summary без
+    # include_all) и в build_launch_rules(); "test" — запускается вручную
+    # так же, как real (виден в GET /processes, можно нажать "Запустить"),
+    # но НЕ засоряет дашборд и не подхватывается плановым автозапуском.
+    kind: str = "real"
 
 
 PROCESS_REGISTRY: dict[str, ProcessRegistration] = {
@@ -43,6 +48,20 @@ PROCESS_REGISTRY: dict[str, ProcessRegistration] = {
         process_id="vkr_defense",
         default_params=ProcessParams(reminder_days=7, escalation_days=14),
         interval_seconds=3600,
+    ),
+    # Тот же процесс, что vkr_defense (те же имена шагов/активностей — можно
+    # использовать mining.control_points.VKR_DEFENSE_CONTROL_POINTS без
+    # изменений), но таймеры в МИНУТАХ, а не днях — чтобы напоминание/
+    # эскалацию можно было реально дождаться за минуты при ручном
+    # тестировании через UI, а не за 7-14 реальных дней. См. TESTING.md.
+    # reminder_days/escalation_days здесь означают МИНУТЫ (см. bpmn-файл).
+    "vkr_defense_fast": ProcessRegistration(
+        process_key="vkr_defense_fast",
+        bpmn_file=_BPMN_DIR / "vkr_defense_fast.bpmn",
+        process_id="vkr_defense_fast",
+        default_params=ProcessParams(reminder_days=1, escalation_days=2),
+        interval_seconds=300,
+        kind="test",
     ),
 }
 
@@ -74,4 +93,5 @@ def build_launch_rules() -> list["LaunchRule"]:
             base_params=reg.default_params,
         )
         for reg in PROCESS_REGISTRY.values()
+        if reg.kind == "real"  # тестовые (kind="test") не подхватываются плановым автозапуском
     ]

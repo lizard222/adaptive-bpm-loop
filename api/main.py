@@ -3,12 +3,17 @@
 Запуск локально:  uvicorn api.main:app --reload
 Инфраструктура:   docker compose up -d   (PostgreSQL + Redis)
 """
+import asyncio
+
 import psycopg
 import redis as redis_lib
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
+from orchestrator import Orchestrator
+
 from .auth import CurrentUser, authenticate, create_token, get_current_user, require_role
+from .background import background_tick_loop
 from .config import settings
 from .corrections import router as corrections_router
 from .dashboard import router as dashboard_router
@@ -26,6 +31,15 @@ app.include_router(corrections_router)
 app.include_router(dashboard_router)
 app.include_router(documents_router)
 app.include_router(processes_router)
+
+
+@app.on_event("startup")
+async def _start_background_tick() -> None:
+    """Без этого фонового цикла граничные таймеры BPMN живых экземпляров
+    (запущенных через REST/UI) не проверяются вообще ничем — см. докстринг
+    api/background.py. Задача живёт, пока жив сам процесс uvicorn."""
+    orchestrator = Orchestrator(settings.database_url)
+    asyncio.create_task(background_tick_loop(orchestrator))
 
 
 @app.get("/", tags=["service"])

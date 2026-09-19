@@ -85,7 +85,14 @@ def run_cycle(
 
         for day in range(max_days + 1):
             frozen.move_to(cycle_start + timedelta(days=day))
-            orch.tick_all()  # резолвит таймеры BPMN, сработавшие к этому дню
+            # process_key ОБЯЗАТЕЛЕН здесь: tick_all() без фильтра тикает
+            # АБСОЛЮТНО ВСЕ активные экземпляры в базе под ЗАМОРОЖЕННЫМ
+            # временем симуляции — включая несвязанные живые экземпляры
+            # (например, вручную запущенные через UI), если они в этот
+            # момент тоже active. Реально найденный баг (19.09.2026): живой
+            # экземпляр получил escalate-событие с датой из симулированного
+            # будущего вместо реальной — см. docstring Orchestrator.tick_all.
+            orch.tick_all(process_key=process_key)
 
             for case_id in case_ids:
                 state = orch.get_state(case_id)

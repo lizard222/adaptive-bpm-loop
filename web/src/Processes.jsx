@@ -155,6 +155,7 @@ function LaunchPanel({ onLaunched }) {
             {options.map((p) => (
               <option key={p.process_key} value={p.process_key}>
                 {p.process_key}
+                {p.kind === "test" ? " (тест, быстрые таймеры)" : ""}
               </option>
             ))}
           </Select>

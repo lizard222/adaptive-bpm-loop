@@ -180,12 +180,30 @@ class Orchestrator:
             self._persist(conn, case_id, process_key, wf)
             conn.commit()
 
-    def tick_all(self) -> int:
-        """Тикает все активные экземпляры. Возвращает их число."""
+    def tick_all(self, process_key: str | None = None) -> int:
+        """Тикает активные экземпляры. Возвращает их число.
+
+        process_key=None (по умолчанию) — тикает АБСОЛЮТНО ВСЕ активные
+        экземпляры в базе, независимо от процесса. Это осознанно и корректно
+        для живого Планировщика (agents/scheduler_agent.py), который должен
+        продвигать все реальные процессы разом. НО РЕАЛЬНАЯ НАЙДЕННАЯ ОШИБКА
+        (19.09.2026): simgen.run_cycle вызывает tick_all() внутри freeze_time
+        на каждые виртуальные сутки симуляции — без фильтра по process_key
+        это тикает и НЕСВЯЗАННЫЕ живые экземпляры (например, вручную
+        запущенные через UI), если они в этот момент тоже 'active', причём
+        под ПОДМЕНЁННЫМ (замороженным) временем симуляции. Итог — реальный
+        живой экземпляр получает settings ESCALATE-событие с датой из
+        симулированного будущего (например, 2026-10-04 вместо реального
+        19.09.2026), хотя его 7/14-дневный норматив физически не мог истечь.
+        simgen.run_cycle теперь передаёт сюда свой собственный process_key —
+        тикает только то, что сам же создал."""
+        query = "SELECT case_id FROM process_instances WHERE status = 'active'"
+        params: tuple = ()
+        if process_key is not None:
+            query += " AND process_key = %s"
+            params = (process_key,)
         with self._connect() as conn:
-            case_ids = [r[0] for r in conn.execute(
-                "SELECT case_id FROM process_instances WHERE status = 'active'"
-            ).fetchall()]
+            case_ids = [r[0] for r in conn.execute(query, params).fetchall()]
         for case_id in case_ids:
             self.tick(case_id)
         return len(case_ids)

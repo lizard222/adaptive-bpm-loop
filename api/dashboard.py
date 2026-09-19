@@ -139,7 +139,10 @@ def summary(include_all: bool = False, user: CurrentUser = Depends(get_current_u
         set(active_counts) | set(completed_counts) | set(params_by_key) | set(reports_by_key) | set(seen_by_key)
     )
     if not include_all:
-        process_keys &= set(PROCESS_REGISTRY)
+        # Только "real" — тестовые записи реестра (например, vkr_defense_fast
+        # с минутными таймерами для ручного тестирования, см. TESTING.md) не
+        # должны попадать на "боевой" дашборд наравне с настоящим процессом.
+        process_keys &= {key for key, reg in PROCESS_REGISTRY.items() if reg.kind == "real"}
     processes = [
         {
             "process_key": key,

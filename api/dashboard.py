@@ -20,6 +20,8 @@ from __future__ import annotations
 import psycopg
 from fastapi import APIRouter, Depends
 
+from orchestrator.process_registry import PROCESS_REGISTRY
+
 from .auth import CurrentUser, get_current_user
 from .config import settings
 
@@ -50,7 +52,17 @@ _AGENT_LABELS = [
 
 
 @router.get("/summary")
-def summary(user: CurrentUser = Depends(get_current_user)):
+def summary(include_all: bool = False, user: CurrentUser = Depends(get_current_user)):
+    """include_all=false (по умолчанию) — показывает только РЕАЛЬНЫЕ процессы
+    системы (ключи из orchestrator/process_registry.py, сейчас — только
+    vkr_defense). Без этого фильтра дашборд захламлён сотнями process_key,
+    накопленных за месяцы смоук-тестов/эксперимента (demo_process_*,
+    experiment_*, workload_planning_days_*, vkr_defense_<run_id> и т.п.) —
+    они получают уникальный process_key НАРОЧНО (чтобы параллельные тесты не
+    видели чужое состояние через общий event_log), но для человека на
+    "боевом" экране это чистый шум, не относящийся к суженной теме. История
+    из БД не удаляется — include_all=true возвращает её целиком, для
+    отладки/проверки данных экспериментов напрямую через API."""
     with psycopg.connect(settings.database_url) as conn:
         active_counts = dict(
             conn.execute(
@@ -58,6 +70,26 @@ def summary(user: CurrentUser = Depends(get_current_user)):
                 "WHERE status = 'active' GROUP BY process_key"
             ).fetchall()
         )
+        # Без этого процесс, у которого ВСЕ экземпляры уже завершились и ни
+        # разу не запускался анализ (нет своей строки в process_params_current/
+        # analysis_reports — например, ручной запуск вне эксперимента), выпадал
+        # из объединения active_counts | params_by_key | reports_by_key и
+        # полностью исчезал из дашборда, хотя вся история осталась в БД.
+        completed_counts = dict(
+            conn.execute(
+                "SELECT process_key, count(*) FROM process_instances "
+                "WHERE status = 'completed' GROUP BY process_key"
+            ).fetchall()
+        )
+        # first_seen/last_seen — для сортировки "сначала новые/старые" на
+        # экране «Процессы» (UI, редизайн). Один запрос по той же таблице,
+        # что active/completed_counts — ключи будут ровно тем же множеством.
+        seen_rows = conn.execute(
+            "SELECT process_key, min(created_at), max(updated_at) FROM process_instances "
+            "GROUP BY process_key"
+        ).fetchall()
+        seen_by_key = {r[0]: {"first_seen": r[1].isoformat(), "last_seen": r[2].isoformat()} for r in seen_rows}
+
         params_rows = conn.execute(
             "SELECT process_key, reminder_days, escalation_days, version, updated_at "
             "FROM process_params_current"
@@ -103,16 +135,28 @@ def summary(user: CurrentUser = Depends(get_current_user)):
             ).fetchone()[0],
         }
 
-    process_keys = sorted(set(active_counts) | set(params_by_key) | set(reports_by_key))
+    process_keys = (
+        set(active_counts) | set(completed_counts) | set(params_by_key) | set(reports_by_key) | set(seen_by_key)
+    )
+    if not include_all:
+        process_keys &= set(PROCESS_REGISTRY)
     processes = [
         {
             "process_key": key,
             "active_instances": active_counts.get(key, 0),
+            "completed_instances": completed_counts.get(key, 0),
             "params": params_by_key.get(key),
             "latest_report": reports_by_key.get(key),
+            "first_seen": seen_by_key.get(key, {}).get("first_seen"),
+            "last_seen": seen_by_key.get(key, {}).get("last_seen"),
         }
         for key in process_keys
     ]
+    # Активные — наверх (только что запущенный процесс легко потерять среди
+    # десятков старых process_key из смоук-тестов, если сортировать просто по
+    # алфавиту); дальше — по числу завершённых (у процесса есть история);
+    # алфавит — только как последний тай-брейк для стабильности порядка.
+    processes.sort(key=lambda p: (-p["active_instances"], -p["completed_instances"], p["process_key"]))
     recent_decisions = [
         {
             "id": r[0], "process_key": r[1], "kind": r[2], "target": r[3], "status": r[4],

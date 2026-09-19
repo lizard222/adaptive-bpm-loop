@@ -87,6 +87,11 @@ export function listLaunchableProcesses() {
   return request("/processes");
 }
 
+// Drill-down на экране «Процессы»: конкретные case_id внутри одного process_key.
+export function listProcessInstances(processKey) {
+  return request(`/processes/${encodeURIComponent(processKey)}/instances`);
+}
+
 export function launchProcess(processKey, attributes = {}) {
   return request(`/processes/${encodeURIComponent(processKey)}/launch`, {
     method: "POST",

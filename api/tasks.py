@@ -75,6 +75,10 @@ def list_tasks(user: CurrentUser = Depends(get_current_user)):
         for t in items:
             created_at = created_by_case.get(t["case_id"])
             params = params_by_key.get(t["process_key"])
+            # Момент старта экземпляра — для сортировки "сначала старые/новые"
+            # на экране «Задачи» (UI). Экспонируется отдельно от due_at/remind_at,
+            # т.к. те требуют params, а created_at может быть известен и без них.
+            t["created_at"] = created_at.isoformat() if created_at else None
             if created_at is None or params is None:
                 t["due_at"] = t["remind_at"] = t["urgency"] = None
                 continue

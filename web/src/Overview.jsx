@@ -48,7 +48,7 @@ export default function Overview({ user }) {
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatTile label="Активных экземпляров" value={totalActive} />
         <StatTile label="Отслеживаемых процессов" value={data.processes.length} />
-        <StatTile label="Средний fitness" value={avgFitness} hint={!avgFitness && "нет анализа"} />
+        <StatTile label="Среднее соответствие модели" value={avgFitness} hint={!avgFitness && "нет анализа"} />
         {canSeeCorrections ? (
           <Link to="/corrections" className="block text-left">
             <StatTile label="Ожидают решения" value={pendingCount} />

@@ -14,13 +14,16 @@ export default function FormField({ label, children }) {
   );
 }
 
-export function Input(props) {
-  return <input className={fieldClass} {...props} />;
+// className деструктурирован отдельно и склеен, а не переопределён спредом
+// props — иначе caller, передавший className (например, чтобы задать
+// ширину), молча стёр бы всю базовую стилизацию поля.
+export function Input({ className = "", ...props }) {
+  return <input className={`${fieldClass} ${className}`} {...props} />;
 }
 
-export function Select({ children, ...props }) {
+export function Select({ children, className = "", ...props }) {
   return (
-    <select className={fieldClass} {...props}>
+    <select className={`${fieldClass} ${className}`} {...props}>
       {children}
     </select>
   );

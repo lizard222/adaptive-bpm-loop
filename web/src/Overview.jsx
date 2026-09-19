@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import * as api from "./api.js";
-import StatTile from "./StatTile.jsx";
-import Badge from "./Badge.jsx";
-import StatusDot from "./StatusDot.jsx";
+import StatTile from "./components/StatTile.jsx";
+import Badge from "./components/Badge.jsx";
+import StatusDot from "./components/StatusDot.jsx";
+import Card from "./components/Card.jsx";
+import { buttonClass } from "./components/Button.jsx";
+import LoadingState from "./components/LoadingState.jsx";
+import ErrorState from "./components/ErrorState.jsx";
+import EmptyState from "./components/EmptyState.jsx";
+import { useApiData } from "./useApiData.js";
+import { CAN_SEE_CORRECTIONS, hasRole } from "./roles.js";
 import { KIND_LABELS } from "./constants.js";
 import { fmtDate } from "./format.js";
 import { relativeTime, agentTone } from "./time.js";
@@ -10,35 +18,23 @@ import { relativeTime, agentTone } from "./time.js";
 const DECISION_TONE = { accepted: "good", rejected: "critical" };
 const DECISION_LABEL = { accepted: "Принято", rejected: "Отклонено" };
 
-export default function Overview({ user, onNavigate }) {
-  const [data, setData] = useState(null);
+export default function Overview({ user }) {
+  const canSeeCorrections = hasRole(user, CAN_SEE_CORRECTIONS);
+  const { data, error, loading, refresh } = useApiData(api.getDashboardSummary);
   const [pendingCount, setPendingCount] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const canSeeCorrections = user.role === "dept_head" || user.role === "admin";
-
-  async function refresh() {
-    try {
-      const summary = await api.getDashboardSummary();
-      setData(summary);
-      if (canSeeCorrections) {
-        const pending = await api.listPendingCorrections();
-        setPendingCount(pending.pending.length);
-      }
-      setError(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   useEffect(() => {
-    refresh();
-  }, []);
+    if (!canSeeCorrections) return;
+    api
+      .listPendingCorrections()
+      .then((p) => setPendingCount(p.pending.length))
+      .catch(() => {
+        /* Overview показывает сводку — точное число необязательно, ошибку не блокируем */
+      });
+  }, [canSeeCorrections, data]);
 
-  if (loading) return <p className="py-6 text-center text-sm text-ink-muted">Загрузка…</p>;
-  if (error) return <p className="text-sm text-status-critical">{error}</p>;
+  if (loading) return <LoadingState rows={5} />;
+  if (error) return <ErrorState message={error} onRetry={refresh} />;
   if (!data) return null;
 
   const totalActive = data.processes.reduce((sum, p) => sum + p.active_instances, 0);
@@ -54,37 +50,33 @@ export default function Overview({ user, onNavigate }) {
         <StatTile label="Отслеживаемых процессов" value={data.processes.length} />
         <StatTile label="Средний fitness" value={avgFitness} hint={!avgFitness && "нет анализа"} />
         {canSeeCorrections ? (
-          <button onClick={() => onNavigate("corrections")} className="text-left">
+          <Link to="/corrections" className="block text-left">
             <StatTile label="Ожидают решения" value={pendingCount} />
-          </button>
+          </Link>
         ) : (
           <StatTile label="Процессов с параметрами" value={data.processes.filter((p) => p.params).length} />
         )}
       </section>
 
-      <section className="flex flex-wrap gap-2">
-        <button
-          onClick={() => onNavigate("tasks")}
-          className="rounded-md border border-gridline px-3 py-1.5 text-xs font-medium text-ink-secondary hover:bg-page dark:border-white/10 dark:text-ink-dark-secondary dark:hover:bg-white/5"
-        >
+      <section className="flex flex-wrap items-center gap-2">
+        <Link to="/tasks" className={buttonClass("secondary")}>
           К задачам
-        </button>
-        <button
-          onClick={() => onNavigate("processes")}
-          className="rounded-md border border-gridline px-3 py-1.5 text-xs font-medium text-ink-secondary hover:bg-page dark:border-white/10 dark:text-ink-dark-secondary dark:hover:bg-white/5"
-        >
+        </Link>
+        <Link to="/processes" className={buttonClass("secondary")}>
           К процессам
-        </button>
-        <button
-          onClick={() => onNavigate("documents")}
-          className="rounded-md border border-gridline px-3 py-1.5 text-xs font-medium text-ink-secondary hover:bg-page dark:border-white/10 dark:text-ink-dark-secondary dark:hover:bg-white/5"
-        >
+        </Link>
+        <Link to="/documents" className={buttonClass("secondary")}>
           Сформировать документ
+        </Link>
+        <button
+          onClick={refresh}
+          className={buttonClass("ghost", "sm", "ml-auto border border-gridline dark:border-white/10")}
+        >
+          Обновить
         </button>
       </section>
 
-      <section className="rounded-lg border border-gridline bg-surface p-5 dark:border-white/10 dark:bg-surface-dark">
-        <h2 className="mb-4 text-base font-semibold text-ink dark:text-ink-dark">Активные агенты</h2>
+      <Card title="Активные агенты">
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {data.agents.map((a) => (
             <li key={a.key} className="flex items-center gap-2 text-sm">
@@ -94,12 +86,11 @@ export default function Overview({ user, onNavigate }) {
             </li>
           ))}
         </ul>
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-gridline bg-surface p-5 dark:border-white/10 dark:bg-surface-dark">
-        <h2 className="mb-4 text-base font-semibold text-ink dark:text-ink-dark">Последние решения</h2>
+      <Card title="Последние решения">
         {data.recent_decisions.length === 0 ? (
-          <p className="py-6 text-center text-sm text-ink-muted">Решений пока не было.</p>
+          <EmptyState message="Решений пока не было." />
         ) : (
           <ul className="flex flex-col gap-2">
             {data.recent_decisions.map((d) => (
@@ -107,9 +98,7 @@ export default function Overview({ user, onNavigate }) {
                 key={d.id}
                 className="flex flex-wrap items-center gap-2 border-b border-gridline py-2 text-sm last:border-0 dark:border-white/10"
               >
-                <Badge tone={DECISION_TONE[d.status] || "neutral"}>
-                  {DECISION_LABEL[d.status] || d.status}
-                </Badge>
+                <Badge tone={DECISION_TONE[d.status] || "neutral"}>{DECISION_LABEL[d.status] || d.status}</Badge>
                 <span className="font-mono text-xs text-ink-muted">{d.process_key}</span>
                 <span className="text-ink dark:text-ink-dark">{KIND_LABELS[d.kind] || d.kind}</span>
                 <span className="text-ink-secondary dark:text-ink-dark-secondary">«{d.target}»</span>
@@ -120,7 +109,7 @@ export default function Overview({ user, onNavigate }) {
             ))}
           </ul>
         )}
-      </section>
+      </Card>
     </>
   );
 }

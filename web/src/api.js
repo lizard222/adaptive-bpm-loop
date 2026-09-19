@@ -80,6 +80,21 @@ export function getDashboardSummary() {
   return request("/dashboard/summary");
 }
 
+// Ручной запуск процесса (E7) — process_key всегда из реестра на бэкенде
+// (orchestrator/process_registry.py), клиент не может передать произвольный
+// bpmn_file/путь.
+export function listLaunchableProcesses() {
+  return request("/processes");
+}
+
+export function launchProcess(processKey, attributes = {}) {
+  return request(`/processes/${encodeURIComponent(processKey)}/launch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(attributes),
+  });
+}
+
 export function listDocumentTemplates() {
   return request("/documents/templates");
 }

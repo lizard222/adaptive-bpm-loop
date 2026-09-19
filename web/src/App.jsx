@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import * as api from "./api.js";
 import Login from "./Login.jsx";
 import Layout from "./Layout.jsx";
@@ -7,13 +8,19 @@ import Processes from "./Processes.jsx";
 import TaskList from "./TaskList.jsx";
 import Documents from "./Documents.jsx";
 import CorrectionsPanel from "./CorrectionsPanel.jsx";
+import Card from "./components/Card.jsx";
+import { CAN_SEE_CORRECTIONS, hasRole } from "./roles.js";
 
+// Тонкий бутстрап: состояние авторизации + маршрутизация (react-router).
+// До редизайна здесь был один useState("overview") без URL — обновление
+// страницы всегда сбрасывало на "Обзор", back/forward браузера не работал,
+// а ролевую проверку для "Корректировки" App.jsx и Overview.jsx дублировали
+// каждый по-своему (теперь — единая hasRole() из roles.js).
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loginError, setLoginError] = useState(null);
   const [loginBusy, setLoginBusy] = useState(false);
-  const [view, setView] = useState("overview");
 
   useEffect(() => {
     if (!api.getToken()) {
@@ -49,30 +56,32 @@ export default function App() {
   if (loading) return <p className="p-10 text-center text-sm text-ink-muted">Загрузка…</p>;
   if (!user) return <Login onLogin={handleLogin} error={loginError} busy={loginBusy} />;
 
-  // Панель корректировок (ФТ-С-7.4) — только завкафедрой/администратор,
-  // как и на уровне API (require_role в api/corrections.py). Таб виден
-  // всегда — заглушка показывает ограничение явно, а не молча прячет пункт.
-  const canSeeCorrections = user.role === "dept_head" || user.role === "admin";
-
   return (
-    <Layout user={user} view={view} onViewChange={setView} onLogout={handleLogout}>
-      {view === "overview" && <Overview user={user} onNavigate={setView} />}
-      {view === "processes" && <Processes />}
-      {view === "tasks" && <TaskList />}
-      {view === "documents" && <Documents />}
-      {view === "corrections" &&
-        (canSeeCorrections ? (
-          <CorrectionsPanel />
-        ) : (
-          <section className="rounded-lg border border-gridline bg-surface p-5 dark:border-white/10 dark:bg-surface-dark">
-            <h2 className="mb-2 text-base font-semibold text-ink dark:text-ink-dark">
-              Корректировки контура адаптации
-            </h2>
-            <p className="text-sm text-ink-muted">
-              Доступно только роли «Заведующий кафедрой» и администратору.
-            </p>
-          </section>
-        ))}
+    <Layout user={user} onLogout={handleLogout}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/overview" replace />} />
+        <Route path="/overview" element={<Overview user={user} />} />
+        <Route path="/processes" element={<Processes user={user} />} />
+        <Route path="/tasks" element={<TaskList user={user} />} />
+        <Route path="/documents" element={<Documents />} />
+        <Route
+          path="/corrections"
+          element={hasRole(user, CAN_SEE_CORRECTIONS) ? <CorrectionsPanel /> : <NoAccess />}
+        />
+        <Route path="*" element={<Navigate to="/overview" replace />} />
+      </Routes>
     </Layout>
+  );
+}
+
+// Пункт меню "Корректировки" теперь скрыт для ролей без доступа (Sidebar.jsx
+// фильтрует NAV_ITEMS по roles) — этот экран остаётся как защита при прямом
+// переходе по URL, а не единственная линия защиты (ФТ-С-7.4, серверная
+// проверка — api/corrections.py::require_role — первична в любом случае).
+function NoAccess() {
+  return (
+    <Card title="Корректировки контура адаптации">
+      <p className="text-sm text-ink-muted">Доступно только роли «Заведующий кафедрой» и администратору.</p>
+    </Card>
   );
 }

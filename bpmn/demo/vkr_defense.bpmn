@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Минимальная РЕАЛЬНАЯ модель процесса "Защита ВКР" (тема сужена до этого
+     процесса — см. документы md/architecture_and_roles.md). Не пытается
+     смоделировать все ~24 мероприятия каталога кафедры (docs/v3.2021
+     Бизнес-процессы кафедры САПРиПК) — только узнаваемую последовательность
+     с двумя реальными контрольными точками. Структурно — как
+     experiment_process.bpmn (параметризованные Python-выражения в
+     таймерах: reminder_days/escalation_days, ВСЕГДА передаются явно через
+     Orchestrator.start_instance(initial_data=...), дефолтов в выражениях
+     нет намеренно — забытый параметр должен падать с ошибкой).
+
+     Шаги:
+       approve_topics   — "Утверждение тем ВКР" (контрольная точка 1)
+       normcontrol      — "Нормоконтроль" (контрольная точка 2, роль normcontrol)
+       admission_order  — "Приказ о допуске к защите" (без таймера: быстрый
+                           административный шаг сразу после нормоконтроля;
+                           совпадает с шаблоном templates/vkr_admission_order.docx)
+       defense          — "Защита ВКР" (без таймера: терминальный шаг, чей
+                           реальный дедлайн — АБСОЛЮТНАЯ дата заседания ГЭК,
+                           а система моделирует только относительные таймеры
+                           от READY, см. experiment/params.py — придумывать
+                           фиктивный относительный таймер здесь было бы
+                           нечестной имитацией реального ограничения). -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_vkr_defense" targetNamespace="http://adaptive-bpm-loop/vkr_defense">
+  <bpmn:process id="vkr_defense" isExecutable="true">
+
+    <bpmn:startEvent id="start"/>
+    <bpmn:sequenceFlow id="f0" sourceRef="start" targetRef="approve_topics"/>
+
+    <!-- Контрольная точка 1: утверждение тем -->
+    <bpmn:userTask id="approve_topics" name="Утверждение тем ВКР"/>
+    <bpmn:sequenceFlow id="f1" sourceRef="approve_topics" targetRef="normcontrol"/>
+
+    <bpmn:boundaryEvent id="remind_topics_timer" attachedToRef="approve_topics" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{reminder_days}D'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f2" sourceRef="remind_topics_timer" targetRef="remind_topics"/>
+    <bpmn:scriptTask id="remind_topics" name="Напоминание: утверждение тем">
+      <bpmn:script>reminded_topics = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f3" sourceRef="remind_topics" targetRef="end_remind_topics"/>
+    <bpmn:endEvent id="end_remind_topics"/>
+
+    <bpmn:boundaryEvent id="escalate_topics_timer" attachedToRef="approve_topics" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{escalation_days}D'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f4" sourceRef="escalate_topics_timer" targetRef="escalate_topics"/>
+    <bpmn:scriptTask id="escalate_topics" name="Эскалация: утверждение тем">
+      <bpmn:script>escalated_topics = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f5" sourceRef="escalate_topics" targetRef="end_escalate_topics"/>
+    <bpmn:endEvent id="end_escalate_topics"/>
+
+    <!-- Контрольная точка 2: нормоконтроль -->
+    <bpmn:userTask id="normcontrol" name="Нормоконтроль"/>
+    <bpmn:sequenceFlow id="f6" sourceRef="normcontrol" targetRef="admission_order"/>
+
+    <bpmn:boundaryEvent id="remind_normcontrol_timer" attachedToRef="normcontrol" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{reminder_days}D'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f7" sourceRef="remind_normcontrol_timer" targetRef="remind_normcontrol"/>
+    <bpmn:scriptTask id="remind_normcontrol" name="Напоминание: нормоконтроль">
+      <bpmn:script>reminded_normcontrol = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f8" sourceRef="remind_normcontrol" targetRef="end_remind_normcontrol"/>
+    <bpmn:endEvent id="end_remind_normcontrol"/>
+
+    <bpmn:boundaryEvent id="escalate_normcontrol_timer" attachedToRef="normcontrol" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{escalation_days}D'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f9" sourceRef="escalate_normcontrol_timer" targetRef="escalate_normcontrol"/>
+    <bpmn:scriptTask id="escalate_normcontrol" name="Эскалация: нормоконтроль">
+      <bpmn:script>escalated_normcontrol = True</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f10" sourceRef="escalate_normcontrol" targetRef="end_escalate_normcontrol"/>
+    <bpmn:endEvent id="end_escalate_normcontrol"/>
+
+    <!-- Без контрольных точек: см. пояснение в шапке файла -->
+    <bpmn:userTask id="admission_order" name="Приказ о допуске к защите"/>
+    <bpmn:sequenceFlow id="f11" sourceRef="admission_order" targetRef="defense"/>
+
+    <bpmn:userTask id="defense" name="Защита ВКР"/>
+    <bpmn:sequenceFlow id="f12" sourceRef="defense" targetRef="end_main"/>
+    <bpmn:endEvent id="end_main"/>
+
+  </bpmn:process>
+</bpmn:definitions>

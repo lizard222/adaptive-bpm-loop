@@ -39,3 +39,17 @@ WORKLOAD_CONTROL_POINTS = [
 EXPERIMENT_CONTROL_POINTS = [
     ControlPoint(task="review_request", reminder_activity="remind", escalation_activity="escalate"),
 ]
+
+# Модель "Защита ВКР" (bpmn/demo/vkr_defense.bpmn) — первая реальная модель
+# процесса, к которому сужена тема (не абстрактная заглушка). Первая, что
+# сочетает НЕСКОЛЬКО контрольных точек (как WORKLOAD_CONTROL_POINTS) с
+# ПАРАМЕТРИЗОВАННЫМИ таймерами (как EXPERIMENT_CONTROL_POINTS) — обе точки
+# используют одни и те же reminder_days/escalation_days процесса, отдельных
+# параметров на точку пока нет (ProcessParams в experiment/params.py —
+# процесс-глобальная, не по-шаговая; расширение до по-шаговых параметров —
+# вне объёма этой минимальной модели). Шаги admission_order/defense
+# сознательно без контрольных точек — см. шапку vkr_defense.bpmn.
+VKR_DEFENSE_CONTROL_POINTS = [
+    ControlPoint(task="approve_topics", reminder_activity="remind_topics", escalation_activity="escalate_topics"),
+    ControlPoint(task="normcontrol", reminder_activity="remind_normcontrol", escalation_activity="escalate_normcontrol"),
+]

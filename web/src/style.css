@@ -5,3 +5,11 @@
 body {
   @apply bg-page text-ink dark:bg-page-dark dark:text-ink-dark;
 }
+
+/* LoadingState.jsx использует animate-pulse — уважаем системную настройку
+   отключения анимаций вместо того, чтобы навязывать мигание всем. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+  }
+}

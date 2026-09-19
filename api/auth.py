@@ -29,6 +29,7 @@ DEMO_USERS = {
     "dept_head": {"password": _h("dept_head"), "role": "dept_head", "full_name": "Заведующий кафедрой (демо)"},
     "supervisor": {"password": _h("supervisor"), "role": "supervisor", "full_name": "Руководитель ВКР (демо)"},
     "secretary": {"password": _h("secretary"), "role": "secretary", "full_name": "Секретарь кафедры (демо)"},
+    "normcontrol": {"password": _h("normcontrol"), "role": "normcontrol", "full_name": "Нормоконтролёр (демо)"},
     "admin": {"password": _h("admin"), "role": "admin", "full_name": "Администратор (демо)"},
 }
 

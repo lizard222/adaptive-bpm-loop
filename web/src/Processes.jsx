@@ -1,29 +1,22 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import * as api from "./api.js";
-import StatTile from "./StatTile.jsx";
-import Badge from "./Badge.jsx";
+import StatTile from "./components/StatTile.jsx";
+import Badge from "./components/Badge.jsx";
+import Card from "./components/Card.jsx";
+import Button from "./components/Button.jsx";
+import Table from "./components/Table.jsx";
+import LoadingState from "./components/LoadingState.jsx";
+import ErrorState from "./components/ErrorState.jsx";
+import EmptyState from "./components/EmptyState.jsx";
+import FormField, { Select } from "./components/FormField.jsx";
+import { useToast } from "./components/Toast.jsx";
+import { useApiData } from "./useApiData.js";
+import { CAN_LAUNCH_PROCESS, hasRole } from "./roles.js";
 import { fmtPct, escalationSeverity } from "./format.js";
 
-export default function Processes() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
+export default function Processes({ user }) {
+  const { data, error, loading, refresh } = useApiData(api.getDashboardSummary);
   const [expanded, setExpanded] = useState(() => new Set());
-
-  async function refresh() {
-    try {
-      setData(await api.getDashboardSummary());
-      setError(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-  }, []);
 
   function toggle(key) {
     setExpanded((prev) => {
@@ -35,34 +28,87 @@ export default function Processes() {
   }
 
   return (
-    <section className="rounded-lg border border-gridline bg-surface p-5 dark:border-white/10 dark:bg-surface-dark">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-ink dark:text-ink-dark">Процессы</h2>
-        <button
-          onClick={refresh}
-          className="rounded-md border border-gridline px-3 py-1.5 text-xs font-medium text-ink-secondary hover:bg-page dark:border-white/10 dark:text-ink-dark-secondary dark:hover:bg-white/5"
-        >
-          Обновить
-        </button>
+    <>
+      {hasRole(user, CAN_LAUNCH_PROCESS) && <LaunchPanel onLaunched={refresh} />}
+
+      <Card
+        title="Процессы"
+        actions={
+          <Button variant="secondary" onClick={refresh}>
+            Обновить
+          </Button>
+        }
+      >
+        {error ? (
+          <ErrorState message={error} onRetry={refresh} />
+        ) : loading ? (
+          <LoadingState rows={3} />
+        ) : !data || data.processes.length === 0 ? (
+          <EmptyState message="Нет данных: ни один процесс ещё не запускался." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {data.processes.map((p) => (
+              <ProcessRow
+                key={p.process_key}
+                process={p}
+                isOpen={expanded.has(p.process_key)}
+                onToggle={() => toggle(p.process_key)}
+              />
+            ))}
+          </div>
+        )}
+      </Card>
+    </>
+  );
+}
+
+// E7 — ручной запуск процесса вне расписания Планировщика. process_key —
+// строго из серверного реестра (GET /processes, orchestrator/process_registry.py),
+// не свободный ввод: клиент не может указать произвольный BPMN-файл.
+function LaunchPanel({ onLaunched }) {
+  const showToast = useToast();
+  const { data } = useApiData(api.listLaunchableProcesses);
+  const [selected, setSelected] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const options = data?.processes || [];
+  if (!options.length) return null; // реестр пуст — запускать вручную нечего
+  const current = selected || options[0].process_key;
+
+  async function launch() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.launchProcess(current);
+      showToast(`Запущен новый экземпляр: ${result.case_id}`);
+      onLaunched();
+    } catch (e) {
+      setError(e.message);
+      showToast(`Не удалось запустить процесс: ${e.message}`, "critical");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Запустить процесс">
+      <div className="flex flex-wrap items-end gap-3">
+        <FormField label="Процесс">
+          <Select value={current} onChange={(e) => setSelected(e.target.value)}>
+            {options.map((p) => (
+              <option key={p.process_key} value={p.process_key}>
+                {p.process_key}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+        <Button variant="primary" onClick={launch} busy={busy} busyLabel="Запускаю…">
+          Запустить новый экземпляр
+        </Button>
       </div>
-      {error && <p className="mb-4 text-sm text-status-critical">{error}</p>}
-      {loading ? (
-        <p className="py-6 text-center text-sm text-ink-muted">Загрузка…</p>
-      ) : !data || data.processes.length === 0 ? (
-        <p className="py-6 text-center text-sm text-ink-muted">Нет данных: ни один процесс ещё не запускался.</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {data.processes.map((p) => (
-            <ProcessRow
-              key={p.process_key}
-              process={p}
-              isOpen={expanded.has(p.process_key)}
-              onToggle={() => toggle(p.process_key)}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+      {error && <p className="mt-2 text-sm text-status-critical">{error}</p>}
+    </Card>
   );
 }
 
@@ -101,42 +147,32 @@ function ProcessRow({ process, isOpen, onToggle }) {
 
 function ControlPointsTable({ rows }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gridline text-left text-xs uppercase tracking-wide text-ink-muted dark:border-white/10">
-            <th className="py-2 pr-3">Задача</th>
-            <th className="py-2 pr-3">Экземпляров</th>
-            <th className="py-2 pr-3">Вовремя</th>
-            <th className="py-2 pr-3">Напоминание</th>
-            <th className="py-2 pr-3">Эскалация</th>
-            <th className="py-2 pr-3">Доля просрочки</th>
-            <th className="py-2">Доля эскалации</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((cp) => {
-            const severity = escalationSeverity(cp.escalated_fraction);
-            return (
-              <tr key={cp.task} className="border-b border-gridline last:border-0 dark:border-white/10">
-                <td className="py-2 pr-3 text-ink dark:text-ink-dark">{cp.task}</td>
-                <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.n_cases}</td>
-                <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.on_time}</td>
-                <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.reminded}</td>
-                <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.escalated}</td>
-                <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{fmtPct(cp.late_fraction)}</td>
-                <td className="py-2">
-                  {severity && (
-                    <Badge tone={severity.tone}>
-                      {fmtPct(cp.escalated_fraction)} · {severity.label}
-                    </Badge>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      columns={["Задача", "Экземпляров", "Вовремя", "Напоминание", "Эскалация", "Доля просрочки", "Доля эскалации"]}
+      rows={rows}
+      rowKey={(cp) => cp.task}
+      renderRow={(cp) => {
+        const severity = escalationSeverity(cp.escalated_fraction);
+        return (
+          <>
+            <td className="py-2 pr-3 text-ink dark:text-ink-dark">{cp.task}</td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.n_cases}</td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.on_time}</td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.reminded}</td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{cp.escalated}</td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">
+              {fmtPct(cp.late_fraction)}
+            </td>
+            <td className="py-2">
+              {severity && (
+                <Badge tone={severity.tone}>
+                  {fmtPct(cp.escalated_fraction)} · {severity.label}
+                </Badge>
+              )}
+            </td>
+          </>
+        );
+      }}
+    />
   );
 }

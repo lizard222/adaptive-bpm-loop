@@ -1,40 +1,61 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import * as api from "./api.js";
+import Card from "./components/Card.jsx";
+import Button from "./components/Button.jsx";
+import LoadingState from "./components/LoadingState.jsx";
+import ErrorState from "./components/ErrorState.jsx";
+import EmptyState from "./components/EmptyState.jsx";
+import FormField, { Input, Select } from "./components/FormField.jsx";
+import { useApiData } from "./useApiData.js";
+import { useToast } from "./components/Toast.jsx";
 import { fmtDate } from "./format.js";
 
 export default function Documents() {
-  const [templates, setTemplates] = useState([]);
+  // РЕАЛЬНЫЙ ФИКС редизайна: до этого начальная загрузка шаблонов+документов
+  // не имела try/catch/loading вообще — сбой здесь раньше проходил
+  // незамеченным (единственный экран без обработки ошибок при загрузке).
+  const { data, error, loading, refresh } = useApiData(async () => {
+    const [t, d] = await Promise.all([api.listDocumentTemplates(), api.listDocuments()]);
+    return { templates: t.templates, documents: d.documents };
+  });
   const [selected, setSelected] = useState("");
   const [caseId, setCaseId] = useState("");
   const [processKey, setProcessKey] = useState("");
   const [fields, setFields] = useState({});
-  const [docs, setDocs] = useState([]);
-  const [error, setError] = useState(null);
+  const [genError, setGenError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const showToast = useToast();
 
-  async function refresh() {
-    const [t, d] = await Promise.all([api.listDocumentTemplates(), api.listDocuments()]);
-    setTemplates(t.templates);
-    setDocs(d.documents);
-    if (!selected && t.templates.length) setSelected(t.templates[0].name);
+  if (loading) {
+    return (
+      <Card title="Документы">
+        <LoadingState rows={4} />
+      </Card>
+    );
+  }
+  if (error) {
+    return (
+      <Card title="Документы">
+        <ErrorState message={error} onRetry={refresh} />
+      </Card>
+    );
   }
 
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const spec = templates.find((t) => t.name === selected);
+  const templates = data?.templates || [];
+  const docs = data?.documents || [];
+  const current = selected || templates[0]?.name || "";
+  const spec = templates.find((t) => t.name === current);
 
   async function generate() {
     setBusy(true);
-    setError(null);
+    setGenError(null);
     try {
-      await api.generateDocument({ template: selected, case_id: caseId, process_key: processKey, context: fields });
+      await api.generateDocument({ template: current, case_id: caseId, process_key: processKey, context: fields });
       setFields({});
+      showToast("Документ сформирован");
       await refresh();
     } catch (e) {
-      setError(e.message);
+      setGenError(e.message);
     } finally {
       setBusy(false);
     }
@@ -42,64 +63,42 @@ export default function Documents() {
 
   return (
     <>
-      <section className="rounded-lg border border-gridline bg-surface p-5 dark:border-white/10 dark:bg-surface-dark">
-        <h2 className="mb-4 text-base font-semibold text-ink dark:text-ink-dark">Сформировать документ</h2>
-        <div className="flex flex-col gap-3 sm:max-w-md">
-          <label className="text-xs text-ink-muted">
-            Шаблон
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              className="mt-1 w-full rounded-md border border-gridline bg-page px-2 py-1.5 text-sm text-ink dark:border-white/10 dark:bg-page-dark dark:text-ink-dark"
-            >
-              {templates.map((t) => (
-                <option key={t.name} value={t.name}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-ink-muted">
-            Экземпляр (case_id)
-            <input
-              value={caseId}
-              onChange={(e) => setCaseId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-gridline bg-page px-2 py-1.5 text-sm text-ink dark:border-white/10 dark:bg-page-dark dark:text-ink-dark"
-            />
-          </label>
-          <label className="text-xs text-ink-muted">
-            Процесс (process_key)
-            <input
-              value={processKey}
-              onChange={(e) => setProcessKey(e.target.value)}
-              className="mt-1 w-full rounded-md border border-gridline bg-page px-2 py-1.5 text-sm text-ink dark:border-white/10 dark:bg-page-dark dark:text-ink-dark"
-            />
-          </label>
-          {spec?.required_fields.map((f) => (
-            <label key={f} className="text-xs text-ink-muted">
-              {f}
-              <input
-                value={fields[f] || ""}
-                onChange={(e) => setFields({ ...fields, [f]: e.target.value })}
-                className="mt-1 w-full rounded-md border border-gridline bg-page px-2 py-1.5 text-sm text-ink dark:border-white/10 dark:bg-page-dark dark:text-ink-dark"
-              />
-            </label>
-          ))}
-          {error && <p className="text-sm text-status-critical">{error}</p>}
-          <button
-            disabled={busy || !selected}
-            onClick={generate}
-            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:brightness-110 disabled:opacity-60 dark:bg-accent-dark"
-          >
-            {busy ? "Формирую…" : "Сформировать"}
-          </button>
-        </div>
-      </section>
+      <Card title="Сформировать документ">
+        {templates.length === 0 ? (
+          <EmptyState message="Шаблоны документов не найдены." />
+        ) : (
+          <div className="flex flex-col gap-3 sm:max-w-md">
+            <FormField label="Шаблон">
+              <Select value={current} onChange={(e) => setSelected(e.target.value)}>
+                {templates.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+            <FormField label="Экземпляр (case_id)">
+              <Input value={caseId} onChange={(e) => setCaseId(e.target.value)} />
+            </FormField>
+            <FormField label="Процесс (process_key)">
+              <Input value={processKey} onChange={(e) => setProcessKey(e.target.value)} />
+            </FormField>
+            {spec?.required_fields.map((f) => (
+              <FormField key={f} label={f}>
+                <Input value={fields[f] || ""} onChange={(e) => setFields({ ...fields, [f]: e.target.value })} />
+              </FormField>
+            ))}
+            {genError && <p className="text-sm text-status-critical">{genError}</p>}
+            <Button variant="primary" disabled={!current} busy={busy} busyLabel="Формирую…" onClick={generate}>
+              Сформировать
+            </Button>
+          </div>
+        )}
+      </Card>
 
-      <section className="rounded-lg border border-gridline bg-surface p-5 dark:border-white/10 dark:bg-surface-dark">
-        <h2 className="mb-4 text-base font-semibold text-ink dark:text-ink-dark">Сформированные документы</h2>
+      <Card title="Сформированные документы">
         {docs.length === 0 ? (
-          <p className="py-6 text-center text-sm text-ink-muted">Документов ещё не формировалось.</p>
+          <EmptyState message="Документов ещё не формировалось." />
         ) : (
           <ul className="flex flex-col gap-2">
             {docs.map((d) => (
@@ -114,17 +113,14 @@ export default function Documents() {
                 <span className="ml-auto text-xs text-ink-muted">
                   {d.generated_by} · {fmtDate(d.generated_at)}
                 </span>
-                <button
-                  onClick={() => api.downloadDocument(d.id, `${d.template}_${d.id}.docx`)}
-                  className="rounded-md border border-gridline px-2 py-1 text-xs font-medium text-ink-secondary hover:bg-page dark:border-white/10 dark:text-ink-dark-secondary dark:hover:bg-white/5"
-                >
+                <Button variant="secondary" onClick={() => api.downloadDocument(d.id, `${d.template}_${d.id}.docx`)}>
                   Скачать
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Card>
     </>
   );
 }

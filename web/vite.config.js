@@ -14,6 +14,7 @@ export default defineConfig({
       "/corrections": "http://localhost:8000",
       "/dashboard": "http://localhost:8000",
       "/documents": "http://localhost:8000",
+      "/processes": "http://localhost:8000",
       "/me": "http://localhost:8000",
     },
   },

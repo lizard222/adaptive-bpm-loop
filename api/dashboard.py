@@ -28,11 +28,15 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 # Контролер: имена активностей напоминания/эскалации различаются по BPMN-модели
 # (mining/control_points.py — DEMO_CONTROL_POINTS/EXPERIMENT_CONTROL_POINTS
 # используют remind/escalate; WORKLOAD_CONTROL_POINTS — remind_calc/escalate_calc/
-# remind_dist/escalate_dist). Жёстко перечисляем известные имена — тот же приём,
-# что и в самих per-model реестрах control_points.py, не строим динамический
-# разбор BPMN ради этого виджета. Новая модель с другими именами таймеров
-# потребует добавить их сюда же.
-_CONTROLLER_ACTIVITIES = ("remind", "escalate", "remind_calc", "escalate_calc", "remind_dist", "escalate_dist")
+# remind_dist/escalate_dist; VKR_DEFENSE_CONTROL_POINTS —
+# remind_topics/escalate_topics/remind_normcontrol/escalate_normcontrol).
+# Жёстко перечисляем известные имена — тот же приём, что и в самих per-model
+# реестрах control_points.py, не строим динамический разбор BPMN ради этого
+# виджета. Новая модель с другими именами таймеров потребует добавить их сюда же.
+_CONTROLLER_ACTIVITIES = (
+    "remind", "escalate", "remind_calc", "escalate_calc", "remind_dist", "escalate_dist",
+    "remind_topics", "escalate_topics", "remind_normcontrol", "escalate_normcontrol",
+)
 
 # Только реальные агенты прототипа — никогда не выдуманные ("предиктор"/
 # "NLP-агент" не существуют, показывать их как "активные" было бы неправдой.

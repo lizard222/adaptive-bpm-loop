@@ -19,6 +19,7 @@ from .corrections import router as corrections_router
 from .dashboard import router as dashboard_router
 from .documents import router as documents_router
 from .processes import router as processes_router
+from .student import router as student_router
 from .tasks import router as tasks_router
 
 app = FastAPI(
@@ -31,6 +32,7 @@ app.include_router(corrections_router)
 app.include_router(dashboard_router)
 app.include_router(documents_router)
 app.include_router(processes_router)
+app.include_router(student_router)
 
 
 @app.on_event("startup")

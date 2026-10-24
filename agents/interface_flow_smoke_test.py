@@ -143,24 +143,39 @@ async def main() -> int:
         initial_data={"reminder_days": 7, "escalation_days": 14},
     )
 
-    tasks_resp = client.get("/tasks", headers=headers)
+    # Модель эксперимента без дорожек BPMN: по api/task_access.py такой шаг
+    # видит и выполняет только admin (раньше — любой пользователь, в т.ч.
+    # dept_head, под которым эта часть теста шла до серверных ролей).
+    admin_headers = _auth_header(client, "admin")
+    secretary_headers = _auth_header(client, "secretary")
+
+    secretary_view = client.get("/tasks", headers=secretary_headers).json()["tasks"]
+    check("шаг без дорожки НЕ виден секретарю (роли на сервере)",
+          not any(t["case_id"] == task_case_id for t in secretary_view))
+
+    tasks_resp = client.get("/tasks", headers=admin_headers)
     check("REST GET /tasks -> 200", tasks_resp.status_code == 200)
     our_tasks = [t for t in tasks_resp.json()["tasks"] if t["case_id"] == task_case_id]
     check("REST реально видит READY-задачу свежего экземпляра", len(our_tasks) == 1)
 
     if our_tasks:
+        forbidden_resp = client.post(
+            f"/tasks/{task_case_id}/{our_tasks[0]['task_name']}/complete", json={}, headers=secretary_headers,
+        )
+        check("чужой шаг -> 403, а не выполнение", forbidden_resp.status_code == 403)
         complete_resp = client.post(
-            f"/tasks/{task_case_id}/{our_tasks[0]['task_name']}/complete", json={}, headers=headers,
+            f"/tasks/{task_case_id}/{our_tasks[0]['task_name']}/complete", json={}, headers=admin_headers,
         )
         check("REST POST /tasks/.../complete -> 200", complete_resp.status_code == 200)
         state_after = orch.get_state(task_case_id)
         check("задача реально помечена выполненной в оркестраторе (не только в ответе REST)",
               all(t["state"] != "READY" for t in state_after["tasks"] if t["name"] == our_tasks[0]["task_name"]))
     else:
+        check("чужой шаг -> 403, а не выполнение", False)
         check("REST POST /tasks/.../complete -> 200", False)
         check("задача реально помечена выполненной в оркестраторе (не только в ответе REST)", False)
 
-    missing_resp = client.post(f"/tasks/no-such-case/some_task/complete", json={}, headers=headers)
+    missing_resp = client.post(f"/tasks/no-such-case/some_task/complete", json={}, headers=admin_headers)
     check("завершение задачи несуществующего экземпляра -> 404, а не тихий успех", missing_resp.status_code == 404)
 
     await adapter.stop()

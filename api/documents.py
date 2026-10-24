@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse
 from eventlog.documents import log_document_generated
 from templates.render import TEMPLATES, missing_fields, render
 
-from .auth import CurrentUser, get_current_user
+from .auth import STAFF_ROLES, CurrentUser, require_role
 from .config import settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -35,7 +35,7 @@ _DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessing
 
 
 @router.get("/templates")
-def list_templates(user: CurrentUser = Depends(get_current_user)):
+def list_templates(user: CurrentUser = Depends(require_role(*STAFF_ROLES))):
     return {
         "templates": [
             {"name": spec.name, "required_fields": list(spec.required_fields)}
@@ -50,7 +50,7 @@ def generate(
     case_id: str = Body(embed=True),
     process_key: str = Body(embed=True),
     context: dict = Body(embed=True, default={}),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_role(*STAFF_ROLES)),
 ):
     spec = TEMPLATES.get(template)
     if spec is None:
@@ -76,7 +76,7 @@ def generate(
 
 
 @router.get("")
-def list_documents(user: CurrentUser = Depends(get_current_user)):
+def list_documents(user: CurrentUser = Depends(require_role(*STAFF_ROLES))):
     with psycopg.connect(settings.database_url) as conn:
         rows = conn.execute(
             "SELECT event_id, case_id, process_key, resource, ts, attributes->>'template' AS template "
@@ -94,7 +94,7 @@ def list_documents(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.get("/{document_id}/download")
-def download(document_id: int, user: CurrentUser = Depends(get_current_user)):
+def download(document_id: int, user: CurrentUser = Depends(require_role(*STAFF_ROLES))):
     with psycopg.connect(settings.database_url) as conn:
         row = conn.execute(
             "SELECT attributes->>'path' AS path FROM event_log "

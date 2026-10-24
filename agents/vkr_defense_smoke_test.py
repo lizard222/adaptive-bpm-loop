@@ -42,7 +42,7 @@ PASSWORD = "smoke-password"
 
 
 class DeptHeadStub(Agent):
-    """Принимает предложение по approve_topics, отклоняет по normcontrol —
+    """Принимает предложение по approve_topics, отклоняет остальные —
     решение по TARGET, как в second_process_smoke_test.py (у обеих
     корректировок kind, скорее всего, одинаковый — shift_start)."""
 
@@ -83,18 +83,21 @@ async def main() -> int:
     process_key = f"vkr_defense_{RUN_ID}"
     orch = Orchestrator(settings.database_url)
 
-    # escalate_topics — ПРЕРЫВАЮЩЕЕ событие: экземпляр, эскалированный на
-    # approve_topics, до normcontrol вообще не доходит ("воронка", тот же
-    # эффект, что у calculate_load->distribute_load). Параметры подобраны по
-    # аналогии со вторым процессом (60 экземпляров, no_show=0.6) — устойчиво
-    # к seed, оставляет достаточно выживших для normcontrol.
+    # Модель с E13 — 7 шагов, 3 контрольные точки (approve_topics, шаг студента
+    # publish_for_normcontrol, normcontrol). У предзащиты (report_2) таймера
+    # нет: "неявившийся" там экземпляр зависает навсегда, поэтому прежний
+    # приём "много неявок" (no_show=0.6) почти никого не доводил до поздних
+    # точек. Здесь эскалации порождают реальные задержки исполнителя
+    # (норматив 2/4 дня при медиане задержки 3 дня), неявки редкие — все три
+    # точки получают долю эскалаций выше порога. Seed фиксирован — результат
+    # детерминирован.
     sim = run_cycle(
-        orch, random.Random(7), ExecutorProfile(no_show_probability=0.6), process_key, BPMN,
+        orch, random.Random(7), ExecutorProfile(no_show_probability=0.1), process_key, BPMN,
         "vkr_defense", n_instances=60,
-        cycle_start=datetime(2026, 9, 1, tzinfo=timezone.utc), max_days=30,
-        reminder_activities=("remind_topics", "remind_normcontrol"),
-        escalation_activities=("escalate_topics", "escalate_normcontrol"),
-        initial_data={"reminder_days": 7, "escalation_days": 14},
+        cycle_start=datetime(2026, 9, 1, tzinfo=timezone.utc), max_days=40,
+        reminder_activities=("remind_topics", "remind_publish", "remind_normcontrol"),
+        escalation_activities=("escalate_topics", "escalate_publish", "escalate_normcontrol"),
+        initial_data={"reminder_days": 2, "escalation_days": 4},
     )
     print(sim)
 
@@ -111,14 +114,18 @@ async def main() -> int:
 
     result = await adapter.process_cycle(process_key, BPMN, VKR_DEFENSE_CONTROL_POINTS, mode="propose")
 
-    check("конвейер посчитал ОБЕ контрольные точки модели ВКР раздельно",
-          set(result.report.control_points.keys()) == {"approve_topics", "normcontrol"})
-    check("предложены корректировки по ОБЕИМ точкам (не схлопнулись в одну)",
-          {c.target for c in result.proposed} == {"approve_topics", "normcontrol"})
-    check("завкафедрой увидел оба предложения одновременно (два thread в работе разом)",
-          set(depthead.seen) == {"approve_topics", "normcontrol"})
+    all_points = {"approve_topics", "publish_for_normcontrol", "normcontrol"}
+    check("конвейер посчитал ВСЕ три контрольные точки раздельно",
+          set(result.report.control_points.keys()) == all_points)
+    check("предложены корректировки по всем трём точкам (не схлопнулись в одну)",
+          {c.target for c in result.proposed} == all_points)
+    check("просрочки самого студента дали корректировку (шаг publish_for_normcontrol)",
+          any(c.target == "publish_for_normcontrol" for c in result.proposed))
+    check("завкафедрой увидел все три предложения одновременно (три thread разом)",
+          set(depthead.seen) == all_points)
     check("принято только approve_topics", {c.target for c in result.accepted} == {"approve_topics"})
-    check("normcontrol отклонён, не применён", {c.target for c in result.rejected} == {"normcontrol"})
+    check("остальные отклонены, не применены",
+          {c.target for c in result.rejected} == all_points - {"approve_topics"})
     check("в БД применена ровно одна корректировка — approve_topics",
           _fetch_applied(process_key) == [(1, "shift_start", "approve_topics")])
     check("ответ на 'чужой'/отклонённый thread не спутан с принятым (нет двойной версии)",

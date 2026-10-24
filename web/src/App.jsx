@@ -8,8 +8,9 @@ import Processes from "./Processes.jsx";
 import TaskList from "./TaskList.jsx";
 import Documents from "./Documents.jsx";
 import CorrectionsPanel from "./CorrectionsPanel.jsx";
+import MyDefense from "./MyDefense.jsx";
 import Card from "./components/Card.jsx";
-import { CAN_SEE_CORRECTIONS, hasRole } from "./roles.js";
+import { CAN_SEE_CORRECTIONS, STAFF, STUDENT_ONLY, hasRole, homePath } from "./roles.js";
 
 // Тонкий бутстрап: состояние авторизации + маршрутизация (react-router).
 // До редизайна здесь был один useState("overview") без URL — обновление
@@ -53,22 +54,29 @@ export default function App() {
     setUser(null);
   }
 
+  // Экран не для этой роли — на её домашний, а не на «нет доступа»: студент по
+  // ссылке на «Обзор» просто попадает в «Мою защиту» (сервер всё равно ответит 403).
+  function only(roles, element) {
+    return hasRole(user, roles) ? element : <Navigate to={homePath(user)} replace />;
+  }
+
   if (loading) return <p className="p-10 text-center text-sm text-ink-muted">Загрузка…</p>;
   if (!user) return <Login onLogin={handleLogin} error={loginError} busy={loginBusy} />;
 
   return (
     <Layout user={user} onLogout={handleLogout}>
       <Routes>
-        <Route path="/" element={<Navigate to="/overview" replace />} />
-        <Route path="/overview" element={<Overview user={user} />} />
-        <Route path="/processes" element={<Processes user={user} />} />
+        <Route path="/" element={<Navigate to={homePath(user)} replace />} />
+        <Route path="/my-defense" element={only(STUDENT_ONLY, <MyDefense user={user} />)} />
+        <Route path="/overview" element={only(STAFF, <Overview user={user} />)} />
+        <Route path="/processes" element={only(STAFF, <Processes user={user} />)} />
         <Route path="/tasks" element={<TaskList user={user} />} />
-        <Route path="/documents" element={<Documents />} />
+        <Route path="/documents" element={only(STAFF, <Documents />)} />
         <Route
           path="/corrections"
           element={hasRole(user, CAN_SEE_CORRECTIONS) ? <CorrectionsPanel /> : <NoAccess />}
         />
-        <Route path="*" element={<Navigate to="/overview" replace />} />
+        <Route path="*" element={<Navigate to={homePath(user)} replace />} />
       </Routes>
     </Layout>
   );

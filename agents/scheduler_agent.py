@@ -91,9 +91,16 @@ class SchedulerAgent(Agent):
         async def run(self) -> None:
             agent: SchedulerAgent = self.agent
 
-            # Продвигаем движок: проверяем таймеры всех активных экземпляров
+            # Продвигаем движок: проверяем таймеры активных экземпляров
             # (ФТ-С-3, находка спайка T-28 — таймеры пассивны без этого вызова).
-            agent.orchestrator.tick_all()
+            # Только процессов СВОИХ правил (26.09.2026): tick_all() без фильтра
+            # продвигал все активные экземпляры в базе — Планировщик смоук-теста
+            # сработал таймером на забытом экземпляре чужого прогона
+            # (e3_prefill_*, 7 дней спустя), и Контролёр разослал лишнее
+            # уведомление. Тот же класс ошибки, что у simgen 19.09; живые
+            # процессы реестра тикает фоновый цикл uvicorn (api/background.py).
+            for key in {r.process_key for r in agent._rules}:
+                agent.orchestrator.tick_all(key)
 
             with psycopg.connect(agent._database_url) as conn:
                 due = [r for r in agent._rules if agent._is_due(conn, r)]

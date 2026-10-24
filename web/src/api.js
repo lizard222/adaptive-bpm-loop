@@ -92,12 +92,19 @@ export function listProcessInstances(processKey) {
   return request(`/processes/${encodeURIComponent(processKey)}/instances`);
 }
 
-export function launchProcess(processKey, attributes = {}) {
+// student — логин студента, чья это защита (E13); без него экземпляр
+// запускается, но его не увидит ни один студент в «Моей защите».
+export function launchProcess(processKey, { student } = {}) {
   return request(`/processes/${encodeURIComponent(processKey)}/launch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(attributes),
+    body: JSON.stringify(student ? { student } : {}),
   });
+}
+
+// «Моя защита» — только для роли студента (api/student.py).
+export function getMyDefense() {
+  return request("/me/defense");
 }
 
 export function listDocumentTemplates() {

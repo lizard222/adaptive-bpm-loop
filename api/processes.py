@@ -18,7 +18,8 @@ from agents.params_store import get_current_params
 from orchestrator import Orchestrator
 from orchestrator.process_registry import PROCESS_REGISTRY
 
-from .auth import CurrentUser, get_current_user, require_role
+from .auth import DEMO_USERS, STAFF_ROLES, CurrentUser, require_role
+from .participants import STUDENT, bind
 from .config import settings
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -44,7 +45,7 @@ def list_launchable(user: CurrentUser = Depends(require_role("dept_head", "secre
 
 
 @router.get("/{process_key}/instances")
-def list_instances(process_key: str, user: CurrentUser = Depends(get_current_user)):
+def list_instances(process_key: str, user: CurrentUser = Depends(require_role(*STAFF_ROLES))):
     """Drill-down для экрана «Процессы» (UI): не только агрегат
     активных/завершённых, но и конкретные case_id с текущим шагом. Доступ —
     как у /dashboard (любой аутентифицированный, read-only, решений здесь
@@ -75,12 +76,18 @@ def list_instances(process_key: str, user: CurrentUser = Depends(get_current_use
 @router.post("/{process_key}/launch")
 def launch(
     process_key: str,
-    attributes: dict = Body(default={}),
+    student: str | None = Body(default=None, embed=True),
+    attributes: dict = Body(default={}, embed=True),
     user: CurrentUser = Depends(require_role("dept_head", "secretary", "admin")),
 ):
+    """student — логин студента, чья это защита (E13). Без него экземпляр
+    запускается, но шаги дорожки «Студент» сможет выполнить только admin, а
+    экран «Моя защита» его не покажет никому."""
     reg = PROCESS_REGISTRY.get(process_key)
     if reg is None:
         raise HTTPException(status_code=404, detail=f"неизвестный process_key: {process_key!r}")
+    if student is not None and DEMO_USERS.get(student, {}).get("role") != "student":
+        raise HTTPException(status_code=422, detail=f"{student!r} — не пользователь с ролью «студент»")
 
     case_id = f"{process_key}-{uuid.uuid4().hex[:8]}"  # уникальность гарантирует сервер, не клиент
     initial_data = None
@@ -92,9 +99,14 @@ def launch(
         _orchestrator.start_instance(
             case_id, process_key, reg.bpmn_file, reg.process_id,
             initial_data=initial_data,
-            attributes={"launched_by": user.username, "manual": True, "initial_data": initial_data, **attributes},
+            attributes={"launched_by": user.username, "manual": True, "student": student,
+                        "initial_data": initial_data, **attributes},
         )
     except Exception as exc:  # noqa: BLE001 — NFR-4: любая ошибка запуска -> явный 500, не тишина (тот же принцип, что api/documents.py)
         raise HTTPException(status_code=500, detail=f"не удалось запустить процесс: {exc}")
 
-    return {"ok": True, "case_id": case_id, "process_key": process_key}
+    if student is not None:
+        with psycopg.connect(settings.database_url) as conn:
+            bind(conn, case_id, STUDENT, student)
+            conn.commit()
+    return {"ok": True, "case_id": case_id, "process_key": process_key, "student": student}

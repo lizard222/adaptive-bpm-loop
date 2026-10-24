@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends
 
 from orchestrator.process_registry import PROCESS_REGISTRY
 
-from .auth import CurrentUser, get_current_user
+from .auth import STAFF_ROLES, CurrentUser, require_role
 from .config import settings
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -38,6 +38,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 _CONTROLLER_ACTIVITIES = (
     "remind", "escalate", "remind_calc", "escalate_calc", "remind_dist", "escalate_dist",
     "remind_topics", "escalate_topics", "remind_normcontrol", "escalate_normcontrol",
+    "remind_publish", "escalate_publish",
 )
 
 # Только реальные агенты прототипа — никогда не выдуманные ("предиктор"/
@@ -52,10 +53,11 @@ _AGENT_LABELS = [
 
 
 @router.get("/summary")
-def summary(include_all: bool = False, user: CurrentUser = Depends(get_current_user)):
-    """include_all=false (по умолчанию) — показывает только РЕАЛЬНЫЕ процессы
-    системы (ключи из orchestrator/process_registry.py, сейчас — только
-    vkr_defense). Без этого фильтра дашборд захламлён сотнями process_key,
+def summary(include_all: bool = False, user: CurrentUser = Depends(require_role(*STAFF_ROLES))):
+    """include_all=false (по умолчанию) — показывает только процессы из
+    реестра orchestrator/process_registry.py (vkr_defense и тестовый
+    vkr_defense_fast); поле kind ("real"/"test") позволяет UI пометить
+    тестовый и не учитывать его в KPI. Без этого фильтра дашборд захламлён сотнями process_key,
     накопленных за месяцы смоук-тестов/эксперимента (demo_process_*,
     experiment_*, workload_planning_days_*, vkr_defense_<run_id> и т.п.) —
     они получают уникальный process_key НАРОЧНО (чтобы параллельные тесты не
@@ -139,13 +141,15 @@ def summary(include_all: bool = False, user: CurrentUser = Depends(get_current_u
         set(active_counts) | set(completed_counts) | set(params_by_key) | set(reports_by_key) | set(seen_by_key)
     )
     if not include_all:
-        # Только "real" — тестовые записи реестра (например, vkr_defense_fast
-        # с минутными таймерами для ручного тестирования, см. TESTING.md) не
-        # должны попадать на "боевой" дашборд наравне с настоящим процессом.
-        process_keys &= {key for key, reg in PROCESS_REGISTRY.items() if reg.kind == "real"}
+        # Реестр целиком, включая kind="test": тестовый процесс пользователь
+        # запускает сам из UI и должен его видеть (раньше он был скрыт вместе
+        # с мусором смоук-тестов — тот в реестр не входит и остаётся скрыт).
+        # Отделение тестового от боевого — через поле kind, а не через скрытие.
+        process_keys &= set(PROCESS_REGISTRY)
     processes = [
         {
             "process_key": key,
+            "kind": PROCESS_REGISTRY[key].kind if key in PROCESS_REGISTRY else None,
             "active_instances": active_counts.get(key, 0),
             "completed_instances": completed_counts.get(key, 0),
             "params": params_by_key.get(key),

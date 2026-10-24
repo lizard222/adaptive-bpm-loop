@@ -37,8 +37,11 @@ export default function Overview({ user }) {
   if (error) return <ErrorState message={error} onRetry={refresh} />;
   if (!data) return null;
 
-  const totalActive = data.processes.reduce((sum, p) => sum + p.active_instances, 0);
-  const fitnessValues = data.processes.map((p) => p.latest_report?.fitness).filter((v) => v != null);
+  // KPI — только по боевым процессам: тестовый vkr_defense_fast (минутные
+  // таймеры для ручной проверки) не должен искажать сводку.
+  const realProcesses = data.processes.filter((p) => p.kind !== "test");
+  const totalActive = realProcesses.reduce((sum, p) => sum + p.active_instances, 0);
+  const fitnessValues = realProcesses.map((p) => p.latest_report?.fitness).filter((v) => v != null);
   const avgFitness = fitnessValues.length
     ? `${Math.round((fitnessValues.reduce((a, b) => a + b, 0) / fitnessValues.length) * 100)}%`
     : null;
@@ -47,14 +50,14 @@ export default function Overview({ user }) {
     <>
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatTile label="Активных экземпляров" value={totalActive} />
-        <StatTile label="Отслеживаемых процессов" value={data.processes.length} />
+        <StatTile label="Отслеживаемых процессов" value={realProcesses.length} />
         <StatTile label="Среднее соответствие модели" value={avgFitness} hint={!avgFitness && "нет анализа"} />
         {canSeeCorrections ? (
           <Link to="/corrections" className="block text-left">
             <StatTile label="Ожидают решения" value={pendingCount} />
           </Link>
         ) : (
-          <StatTile label="Процессов с параметрами" value={data.processes.filter((p) => p.params).length} />
+          <StatTile label="Процессов с параметрами" value={realProcesses.filter((p) => p.params).length} />
         )}
       </section>
 

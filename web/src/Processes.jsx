@@ -125,6 +125,7 @@ function LaunchPanel({ onLaunched }) {
   const showToast = useToast();
   const { data } = useApiData(api.listLaunchableProcesses);
   const [selected, setSelected] = useState("");
+  const [student, setStudent] = useState("student");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -136,8 +137,10 @@ function LaunchPanel({ onLaunched }) {
     setBusy(true);
     setError(null);
     try {
-      const result = await api.launchProcess(current);
-      showToast(`Запущен новый экземпляр: ${result.case_id}`);
+      const result = await api.launchProcess(current, { student: student.trim() || undefined });
+      showToast(
+        `Запущен новый экземпляр: ${result.case_id}` + (result.student ? ` (студент: ${result.student})` : ""),
+      );
       onLaunched();
     } catch (e) {
       setError(e.message);
@@ -160,6 +163,14 @@ function LaunchPanel({ onLaunched }) {
             ))}
           </Select>
         </FormField>
+        <FormField label="Студент (логин)">
+          <Input
+            value={student}
+            onChange={(e) => setStudent(e.target.value)}
+            placeholder="пусто — без привязки"
+            className="sm:w-48"
+          />
+        </FormField>
         <Button variant="primary" onClick={launch} busy={busy} busyLabel="Запускаю…">
           Запустить новый экземпляр
         </Button>
@@ -170,11 +181,14 @@ function LaunchPanel({ onLaunched }) {
 }
 
 function ProcessRow({ process, isOpen, onToggle }) {
-  const { process_key, active_instances, completed_instances, params, latest_report } = process;
+  const { process_key, kind, active_instances, completed_instances, params, latest_report } = process;
   return (
     <div className="rounded-md border border-gridline dark:border-white/10">
       <button onClick={onToggle} className="flex w-full items-center justify-between px-4 py-3 text-left">
-        <span className="font-mono text-sm text-ink dark:text-ink-dark">{process_key}</span>
+        <span className="flex items-center gap-2">
+          <span className="font-mono text-sm text-ink dark:text-ink-dark">{process_key}</span>
+          {kind === "test" && <Badge tone="warning">тест, быстрые таймеры</Badge>}
+        </span>
         <span className="flex items-center gap-4 text-xs text-ink-muted">
           <span>{active_instances} активных</span>
           <span>{completed_instances} завершённых</span>

@@ -24,7 +24,9 @@ try:
 except ImportError:
     from SpiffWorkflow.task import TaskState
 
-from .specs import load_spec
+from SpiffWorkflow.bpmn.specs.defaults import BoundaryEvent
+
+from .specs import load_spec_with_subprocesses
 
 _SERIALIZER = BpmnWorkflowSerializer()
 
@@ -59,6 +61,33 @@ _LOGGABLE_SPEC_MODULE = "SpiffWorkflow.bpmn.specs.defaults"
 
 def _is_business_activity(task) -> bool:
     return type(task.task_spec).__module__ == _LOGGABLE_SPEC_MODULE
+
+
+def _boundary_timers(task) -> list[dict]:
+    """Граничные таймеры шага с точным моментом срабатывания.
+
+    SpiffWorkflow кладёт задачи граничных событий соседями шага (общий
+    родитель — BoundaryEventSplit) и, когда шаг становится READY, записывает
+    в internal_data таймера event_value — ISO-момент срабатывания, уже
+    посчитанный из выражения таймера (P7D, PT2M...) и параметров экземпляра.
+    Это истина движка: без приближений по единицам и точке отсчёта."""
+    if task.parent is None:
+        return []
+    timers = []
+    for sibling in task.parent.children:
+        if sibling is task or not isinstance(sibling.task_spec, BoundaryEvent):
+            continue
+        definition = getattr(sibling.task_spec, "event_definition", None)
+        fire_at = sibling.internal_data.get("event_value") if definition is not None else None
+        if fire_at is None or "Timer" not in type(definition).__name__:
+            continue
+        timers.append({
+            "name": sibling.task_spec.name,
+            "fire_at": fire_at,
+            "fired": sibling.state == TaskState.COMPLETED or bool(sibling.internal_data.get("event_fired")),
+            "interrupting": bool(getattr(sibling.task_spec, "cancel_activity", False)),
+        })
+    return sorted(timers, key=lambda t: t["fire_at"])
 
 
 class Orchestrator:
@@ -146,8 +175,8 @@ class Orchestrator:
 
     def start_instance(self, case_id: str, process_key: str, bpmn_file: Path, process_id: str | None = None,
                         initial_data: dict | None = None, attributes: dict | None = None) -> None:
-        spec = load_spec(bpmn_file, process_id)
-        wf = BpmnWorkflow(spec)
+        spec, subprocess_specs = load_spec_with_subprocesses(bpmn_file, process_id)
+        wf = BpmnWorkflow(spec, subprocess_specs)
         if initial_data:
             # НЕ wf.data: Task.__init__ инициализирует task.data = {} безусловно,
             # никак не читая workflow.data (единственная связь между ними —
@@ -184,9 +213,9 @@ class Orchestrator:
         """Тикает активные экземпляры. Возвращает их число.
 
         process_key=None (по умолчанию) — тикает АБСОЛЮТНО ВСЕ активные
-        экземпляры в базе, независимо от процесса. Это осознанно и корректно
-        для живого Планировщика (agents/scheduler_agent.py), который должен
-        продвигать все реальные процессы разом. НО РЕАЛЬНАЯ НАЙДЕННАЯ ОШИБКА
+        экземпляры в базе, независимо от процесса. Сейчас так не вызывает никто:
+        Планировщик (agents/scheduler_agent.py) с 26.09.2026 тикает только
+        ключи своих правил, фоновый цикл uvicorn — ключи реестра. РЕАЛЬНАЯ НАЙДЕННАЯ ОШИБКА
         (19.09.2026): simgen.run_cycle вызывает tick_all() внутри freeze_time
         на каждые виртуальные сутки симуляции — без фильтра по process_key
         это тикает и НЕСВЯЗАННЫЕ живые экземпляры (например, вручную
@@ -238,7 +267,9 @@ class Orchestrator:
             "process_key": process_key,
             "completed": wf.is_completed(),
             "tasks": [
-                {"name": t.task_spec.name, "state": _task_state_name(t.state)}
+                {"name": t.task_spec.name, "state": _task_state_name(t.state),
+                 "lane": getattr(t.task_spec, "lane", None),
+                 "timers": _boundary_timers(t) if t.state == TaskState.READY else []}
                 for t in wf.get_tasks() if t.task_spec.name
             ],
             "data": dict(wf.data),
@@ -254,5 +285,8 @@ class Orchestrator:
         if process_key is not None:
             query += " AND process_key = %s"
             params = (process_key,)
+        # Свежие первыми: без ORDER BY порядок произвольный, и только что
+        # запущенный экземпляр мог оказаться на 2-й странице «Задач» (UI).
+        query += " ORDER BY created_at DESC, case_id"
         with self._connect() as conn:
             return [row[0] for row in conn.execute(query, params).fetchall()]

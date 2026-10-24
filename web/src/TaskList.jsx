@@ -13,7 +13,6 @@ import FormField, { Input, Select } from "./components/FormField.jsx";
 import { useApiData } from "./useApiData.js";
 import { useToast } from "./components/Toast.jsx";
 import { useListControls, compareByDate, compareByString } from "./useListControls.js";
-import { visibleTasks } from "./roleTasks.js";
 import { fmtDate } from "./format.js";
 
 const URGENCY_LABEL = { good: "В срок", warning: "Скоро", critical: "Просрочено" };
@@ -21,7 +20,7 @@ const URGENCY_LABEL = { good: "В срок", warning: "Скоро", critical: "�
 const ALL_PROCESSES = "__all__";
 
 const SORT_OPTIONS = [
-  { key: "default", label: "По умолчанию" },
+  { key: "default", label: "По умолчанию (новые сначала)" },
   { key: "newest", label: "Сначала новые" },
   { key: "oldest", label: "Сначала старые" },
   { key: "due", label: "По сроку (скоро истекает)" },
@@ -49,10 +48,9 @@ export default function TaskList({ user }) {
   const [processFilter, setProcessFilter] = useState(ALL_PROCESSES);
   const showToast = useToast();
 
-  // Нормоконтролю показываем только его шаг (roleTasks.js) — временная
-  // клиентская замена настоящих BPMN-дорожек, остальные роли видят все
-  // READY-задачи без изменений (см. докстринг roleTasks.js).
-  const roleTasks = visibleTasks(data?.tasks || [], user.role);
+  // Сервер уже отдаёт только задачи дорожки текущей роли (api/task_access.py)
+  // — клиентского фильтра по ролям здесь больше нет.
+  const roleTasks = data?.tasks || [];
 
   const processOptions = useMemo(
     () => [...new Set(roleTasks.map((t) => t.process_key))].sort(),
@@ -104,7 +102,13 @@ export default function TaskList({ user }) {
       ) : loading ? (
         <LoadingState rows={4} />
       ) : roleTasks.length === 0 ? (
-        <EmptyState message="Нет активных READY-задач." />
+        <EmptyState
+          message={
+            user.role === "admin"
+              ? "Нет активных READY-задач."
+              : "Для вашей роли сейчас нет задач: шаги процесса распределены по ролям дорожками BPMN-модели."
+          }
+        />
       ) : (
         <>
           <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -141,7 +145,7 @@ export default function TaskList({ user }) {
             <EmptyState message="Ничего не найдено по этому запросу/фильтру." />
           ) : (
             <Table
-              columns={["Процесс", "Экземпляр", "Задача", "Срок", ""]}
+              columns={["Процесс", "Экземпляр", "Задача", "Дорожка", "Срок", ""]}
               rows={pageItems}
               rowKey={(t) => `${t.case_id}/${t.task_name}`}
               renderRow={(t) => (
@@ -149,6 +153,9 @@ export default function TaskList({ user }) {
                   <td className="py-2 pr-3 text-ink dark:text-ink-dark">{t.process_key}</td>
                   <td className="py-2 pr-3 font-mono text-xs tabular-nums text-ink-muted">{t.case_id}</td>
                   <td className="py-2 pr-3 text-ink dark:text-ink-dark">{t.task_name}</td>
+                  <td className="py-2 pr-3 text-xs text-ink-secondary dark:text-ink-dark-secondary">
+                    {t.lane || "— (только admin)"}
+                  </td>
                   <td className="py-2 pr-3">
                     {t.due_at ? (
                       <div className="flex items-center gap-2">

@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- СГЕНЕРИРОВАНО bpmn/tobe/build_tobe.py — не редактировать вручную, править генератор.
+     To-be модель процесса «Защита ВКР» (T-22): уровень выпуска + многоэкземплярный
+     подпроцесс по каждому студенту (переменная students — список). level =
+     'bachelor' | 'master' включает шаги, специфичные для уровня по каталогу.
+     Дорожки = роли исполнителей. Таблица соответствия каталогу — TRACEABILITY.md.
+     Переменные запуска: level, students, topics_days, normcontrol_days,
+     plagiarism_days, admission_days, topic_change_needed, report_2_ok. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_vkr_defense_tobe" targetNamespace="http://adaptive-bpm-loop/vkr_defense_tobe">
+  <bpmn:process id="vkr_defense_tobe" name="Защита ВКР (выпуск), to-be" isExecutable="true">
+    <bpmn:laneSet id="lanes">
+    <bpmn:lane id="lane_dept_head" name="Заведующий кафедрой"><bpmn:flowNodeRef>gak_order</bpmn:flowNodeRef><bpmn:flowNodeRef>individual_plans</bpmn:flowNodeRef><bpmn:flowNodeRef>plagiarism_responsible</bpmn:flowNodeRef><bpmn:flowNodeRef>escalate_distribute_topics</bpmn:flowNodeRef><bpmn:flowNodeRef>escalate_normcontrol</bpmn:flowNodeRef><bpmn:flowNodeRef>escalate_plagiarism_check</bpmn:flowNodeRef><bpmn:flowNodeRef>escalate_admission_order</bpmn:flowNodeRef></bpmn:lane>
+    <bpmn:lane id="lane_secretary" name="Секретарь кафедры"><bpmn:flowNodeRef>distribute_topics</bpmn:flowNodeRef><bpmn:flowNodeRef>approve_topics</bpmn:flowNodeRef><bpmn:flowNodeRef>consult_schedule</bpmn:flowNodeRef><bpmn:flowNodeRef>seminars</bpmn:flowNodeRef><bpmn:flowNodeRef>defense_schedule</bpmn:flowNodeRef><bpmn:flowNodeRef>organize_defenses</bpmn:flowNodeRef><bpmn:flowNodeRef>honors</bpmn:flowNodeRef><bpmn:flowNodeRef>gek_payment</bpmn:flowNodeRef><bpmn:flowNodeRef>report_results</bpmn:flowNodeRef><bpmn:flowNodeRef>employment</bpmn:flowNodeRef><bpmn:flowNodeRef>archive</bpmn:flowNodeRef><bpmn:flowNodeRef>topic_change_order</bpmn:flowNodeRef><bpmn:flowNodeRef>reprimand</bpmn:flowNodeRef><bpmn:flowNodeRef>admission_order</bpmn:flowNodeRef><bpmn:flowNodeRef>handover_to_gek</bpmn:flowNodeRef><bpmn:flowNodeRef>docs_check</bpmn:flowNodeRef><bpmn:flowNodeRef>protocols</bpmn:flowNodeRef></bpmn:lane>
+    <bpmn:lane id="lane_supervisor" name="Руководитель ВКР"><bpmn:flowNodeRef>publication_plan</bpmn:flowNodeRef><bpmn:flowNodeRef>report_1</bpmn:flowNodeRef><bpmn:flowNodeRef>report_2</bpmn:flowNodeRef><bpmn:flowNodeRef>supervisor_review</bpmn:flowNodeRef></bpmn:lane>
+    <bpmn:lane id="lane_normcontrol" name="Нормоконтролёр"><bpmn:flowNodeRef>normcontrol</bpmn:flowNodeRef></bpmn:lane>
+    <bpmn:lane id="lane_plagiarism" name="Ответственный за проверку на заимствования"><bpmn:flowNodeRef>plagiarism_check</bpmn:flowNodeRef></bpmn:lane>
+    <bpmn:lane id="lane_student" name="Студент"><bpmn:flowNodeRef>publish_for_normcontrol</bpmn:flowNodeRef><bpmn:flowNodeRef>publish_final</bpmn:flowNodeRef></bpmn:lane>
+    <bpmn:lane id="lane_commission" name="ГЭК"><bpmn:flowNodeRef>defense</bpmn:flowNodeRef></bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:subProcess id="student_vkr" name="Подготовка и защита ВКР студента">
+    <bpmn:multiInstanceLoopCharacteristics isSequential="false"><bpmn:loopDataInputRef>students</bpmn:loopDataInputRef><bpmn:inputDataItem id="student"/></bpmn:multiInstanceLoopCharacteristics>
+    <bpmn:startEvent id="student_start"/>
+    <bpmn:userTask id="admission_order" name="Приказ о допуске к защите"/>
+    <bpmn:userTask id="defense" name="Защита ВКР"/>
+    <bpmn:userTask id="docs_check" name="Проверка комплекта документов секретарём"/>
+    <bpmn:userTask id="handover_to_gek" name="Передача ВКР, отзыва, рецензии и справки в ГЭК"/>
+    <bpmn:userTask id="normcontrol" name="Нормоконтроль"/>
+    <bpmn:userTask id="plagiarism_check" name="Проверка на заимствования и справка"/>
+    <bpmn:userTask id="protocols" name="Протоколы защиты и зачётные книжки"/>
+    <bpmn:userTask id="publish_final" name="Публикация финальных версий в Moodle"/>
+    <bpmn:userTask id="publish_for_normcontrol" name="Публикация ПЗ и ТЗ в Moodle для нормоконтроля"/>
+    <bpmn:userTask id="report_1" name="1-й промежуточный отчёт"/>
+    <bpmn:userTask id="report_2" name="Предзащита (2-й промежуточный отчёт)"/>
+    <bpmn:userTask id="reprimand" name="Оформление выговора"/>
+    <bpmn:userTask id="supervisor_review" name="Отзыв руководителя и рецензия"/>
+    <bpmn:userTask id="topic_change_order" name="Приказ на изменение темы"/>
+    <bpmn:exclusiveGateway id="gw_topic_change" name="Нужно изменить тему?" default="gw_topic_change_default"/>
+    <bpmn:exclusiveGateway id="gw_topic_change_join"/>
+    <bpmn:exclusiveGateway id="gw_report_2" name="Предзащита не пройдена?" default="gw_report_2_default"/>
+    <bpmn:exclusiveGateway id="gw_report_2_join"/>
+    <bpmn:parallelGateway id="ps_checks"/>
+    <bpmn:parallelGateway id="pj_checks"/>
+    <bpmn:exclusiveGateway id="gw_review" name="Магистратура?" default="gw_review_default"/>
+    <bpmn:exclusiveGateway id="gw_review_join"/>
+    <bpmn:exclusiveGateway id="gw_handover" name="Магистратура?" default="gw_handover_default"/>
+    <bpmn:exclusiveGateway id="gw_handover_join"/>
+    <bpmn:endEvent id="student_end"/>
+    <bpmn:boundaryEvent id="normcontrol_timer" name="Срок: Нормоконтроль" attachedToRef="normcontrol" cancelActivity="false"><bpmn:timerEventDefinition><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{normcontrol_days}D'</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_normcontrol" name="Эскалация завкафедрой: Нормоконтроль"><bpmn:script>escalated_normcontrol = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_normcontrol"/>
+    <bpmn:boundaryEvent id="plagiarism_check_timer" name="Срок: Проверка на заимствования и справка" attachedToRef="plagiarism_check" cancelActivity="false"><bpmn:timerEventDefinition><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{plagiarism_days}D'</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_plagiarism_check" name="Эскалация завкафедрой: Проверка на заимствования и справка"><bpmn:script>escalated_plagiarism_check = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_plagiarism_check"/>
+    <bpmn:boundaryEvent id="admission_order_timer" name="Срок: Приказ о допуске к защите" attachedToRef="admission_order" cancelActivity="false"><bpmn:timerEventDefinition><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{admission_days}D'</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_admission_order" name="Эскалация завкафедрой: Приказ о допуске к защите"><bpmn:script>escalated_admission_order = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_admission_order"/>
+    <bpmn:sequenceFlow id="flow_1" sourceRef="gw_topic_change" targetRef="topic_change_order"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">topic_change_needed == True</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_2" sourceRef="topic_change_order" targetRef="gw_topic_change_join"/>
+    <bpmn:sequenceFlow id="gw_topic_change_default" sourceRef="gw_topic_change" targetRef="gw_topic_change_join"/>
+    <bpmn:sequenceFlow id="flow_4" sourceRef="gw_report_2" targetRef="reprimand"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">report_2_ok == False</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_5" sourceRef="reprimand" targetRef="gw_report_2_join"/>
+    <bpmn:sequenceFlow id="gw_report_2_default" sourceRef="gw_report_2" targetRef="gw_report_2_join"/>
+    <bpmn:sequenceFlow id="flow_7" sourceRef="gw_review" targetRef="supervisor_review"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">level == 'master'</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_8" sourceRef="supervisor_review" targetRef="gw_review_join"/>
+    <bpmn:sequenceFlow id="gw_review_default" sourceRef="gw_review" targetRef="gw_review_join"/>
+    <bpmn:sequenceFlow id="flow_10" sourceRef="gw_handover" targetRef="handover_to_gek"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">level == 'master'</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_11" sourceRef="handover_to_gek" targetRef="docs_check"/>
+    <bpmn:sequenceFlow id="flow_12" sourceRef="docs_check" targetRef="gw_handover_join"/>
+    <bpmn:sequenceFlow id="gw_handover_default" sourceRef="gw_handover" targetRef="gw_handover_join"/>
+    <bpmn:sequenceFlow id="flow_14" sourceRef="student_start" targetRef="report_1"/>
+    <bpmn:sequenceFlow id="flow_15" sourceRef="report_1" targetRef="gw_topic_change"/>
+    <bpmn:sequenceFlow id="flow_16" sourceRef="gw_topic_change_join" targetRef="report_2"/>
+    <bpmn:sequenceFlow id="flow_17" sourceRef="report_2" targetRef="gw_report_2"/>
+    <bpmn:sequenceFlow id="flow_18" sourceRef="gw_report_2_join" targetRef="publish_for_normcontrol"/>
+    <bpmn:sequenceFlow id="flow_19" sourceRef="publish_for_normcontrol" targetRef="normcontrol"/>
+    <bpmn:sequenceFlow id="flow_20" sourceRef="normcontrol" targetRef="publish_final"/>
+    <bpmn:sequenceFlow id="flow_21" sourceRef="publish_final" targetRef="ps_checks"/>
+    <bpmn:sequenceFlow id="flow_22" sourceRef="ps_checks" targetRef="plagiarism_check"/>
+    <bpmn:sequenceFlow id="flow_23" sourceRef="plagiarism_check" targetRef="pj_checks"/>
+    <bpmn:sequenceFlow id="flow_24" sourceRef="ps_checks" targetRef="gw_review"/>
+    <bpmn:sequenceFlow id="flow_25" sourceRef="gw_review_join" targetRef="pj_checks"/>
+    <bpmn:sequenceFlow id="flow_26" sourceRef="pj_checks" targetRef="admission_order"/>
+    <bpmn:sequenceFlow id="flow_27" sourceRef="admission_order" targetRef="gw_handover"/>
+    <bpmn:sequenceFlow id="flow_28" sourceRef="gw_handover_join" targetRef="defense"/>
+    <bpmn:sequenceFlow id="flow_29" sourceRef="defense" targetRef="protocols"/>
+    <bpmn:sequenceFlow id="flow_30" sourceRef="protocols" targetRef="student_end"/>
+    <bpmn:sequenceFlow id="flow_31" sourceRef="normcontrol_timer" targetRef="escalate_normcontrol"/>
+    <bpmn:sequenceFlow id="flow_32" sourceRef="escalate_normcontrol" targetRef="end_escalate_normcontrol"/>
+    <bpmn:sequenceFlow id="flow_33" sourceRef="plagiarism_check_timer" targetRef="escalate_plagiarism_check"/>
+    <bpmn:sequenceFlow id="flow_34" sourceRef="escalate_plagiarism_check" targetRef="end_escalate_plagiarism_check"/>
+    <bpmn:sequenceFlow id="flow_35" sourceRef="admission_order_timer" targetRef="escalate_admission_order"/>
+    <bpmn:sequenceFlow id="flow_36" sourceRef="escalate_admission_order" targetRef="end_escalate_admission_order"/>
+    </bpmn:subProcess>
+    <bpmn:startEvent id="start" name="Начало учебного года"/>
+    <bpmn:userTask id="distribute_topics" name="Распределение тем и руководителей"/>
+    <bpmn:userTask id="approve_topics" name="Приказ о назначении руководителей и тем"/>
+    <bpmn:userTask id="gak_order" name="Состав ГЭК и приказ о комиссии"/>
+    <bpmn:userTask id="consult_schedule" name="Расписание консультаций руководителей"/>
+    <bpmn:userTask id="seminars" name="Методичка и семинары о подготовке ВКР"/>
+    <bpmn:userTask id="publication_plan" name="План публикаций магистрантов"/>
+    <bpmn:userTask id="individual_plans" name="Утверждение индивидуальных планов магистрантов"/>
+    <bpmn:userTask id="defense_schedule" name="График защит на текущий год"/>
+    <bpmn:userTask id="plagiarism_responsible" name="Распоряжение о назначении ответственного за проверку на заимствования"/>
+    <bpmn:userTask id="organize_defenses" name="Организация защит: запись, уведомление ГЭК и студентов"/>
+    <bpmn:userTask id="honors" name="Ходатайство о выпускниках на красный диплом"/>
+    <bpmn:userTask id="gek_payment" name="Документы на оплату сторонних членов ГЭК"/>
+    <bpmn:userTask id="report_results" name="Отчёт по результатам защит"/>
+    <bpmn:userTask id="employment" name="Сбор данных о трудоустройстве выпускников"/>
+    <bpmn:userTask id="archive" name="Сдача документов в архив"/>
+    <bpmn:parallelGateway id="ps_setup"/>
+    <bpmn:parallelGateway id="pj_setup"/>
+    <bpmn:parallelGateway id="ps_main"/>
+    <bpmn:parallelGateway id="pj_main"/>
+    <bpmn:endEvent id="end" name="Выпуск завершён"/>
+    <bpmn:exclusiveGateway id="gw_master_plans" name="Магистратура?" default="gw_master_plans_default"/>
+    <bpmn:exclusiveGateway id="gw_master_plans_join"/>
+    <bpmn:exclusiveGateway id="gw_bachelor_extra" name="Бакалавриат?" default="gw_bachelor_extra_default"/>
+    <bpmn:exclusiveGateway id="gw_bachelor_extra_join"/>
+    <bpmn:boundaryEvent id="distribute_topics_timer" name="Срок: Распределение тем и руководителей" attachedToRef="distribute_topics" cancelActivity="false"><bpmn:timerEventDefinition><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'P{topics_days}D'</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_distribute_topics" name="Эскалация завкафедрой: Распределение тем и руководителей"><bpmn:script>escalated_distribute_topics = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_distribute_topics"/>
+    <bpmn:sequenceFlow id="flow_37" sourceRef="gw_master_plans" targetRef="publication_plan"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">level == 'master'</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_38" sourceRef="publication_plan" targetRef="individual_plans"/>
+    <bpmn:sequenceFlow id="flow_39" sourceRef="individual_plans" targetRef="gw_master_plans_join"/>
+    <bpmn:sequenceFlow id="gw_master_plans_default" sourceRef="gw_master_plans" targetRef="gw_master_plans_join"/>
+    <bpmn:sequenceFlow id="flow_41" sourceRef="gw_bachelor_extra" targetRef="honors"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">level == 'bachelor'</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_42" sourceRef="honors" targetRef="gek_payment"/>
+    <bpmn:sequenceFlow id="flow_43" sourceRef="gek_payment" targetRef="gw_bachelor_extra_join"/>
+    <bpmn:sequenceFlow id="gw_bachelor_extra_default" sourceRef="gw_bachelor_extra" targetRef="gw_bachelor_extra_join"/>
+    <bpmn:sequenceFlow id="flow_45" sourceRef="start" targetRef="distribute_topics"/>
+    <bpmn:sequenceFlow id="flow_46" sourceRef="distribute_topics" targetRef="approve_topics"/>
+    <bpmn:sequenceFlow id="flow_47" sourceRef="approve_topics" targetRef="ps_setup"/>
+    <bpmn:sequenceFlow id="flow_48" sourceRef="ps_setup" targetRef="gak_order"/>
+    <bpmn:sequenceFlow id="flow_49" sourceRef="gak_order" targetRef="pj_setup"/>
+    <bpmn:sequenceFlow id="flow_50" sourceRef="ps_setup" targetRef="consult_schedule"/>
+    <bpmn:sequenceFlow id="flow_51" sourceRef="consult_schedule" targetRef="seminars"/>
+    <bpmn:sequenceFlow id="flow_52" sourceRef="seminars" targetRef="pj_setup"/>
+    <bpmn:sequenceFlow id="flow_53" sourceRef="ps_setup" targetRef="gw_master_plans"/>
+    <bpmn:sequenceFlow id="flow_54" sourceRef="gw_master_plans_join" targetRef="pj_setup"/>
+    <bpmn:sequenceFlow id="flow_55" sourceRef="pj_setup" targetRef="ps_main"/>
+    <bpmn:sequenceFlow id="flow_56" sourceRef="ps_main" targetRef="student_vkr"/>
+    <bpmn:sequenceFlow id="flow_57" sourceRef="student_vkr" targetRef="pj_main"/>
+    <bpmn:sequenceFlow id="flow_58" sourceRef="ps_main" targetRef="defense_schedule"/>
+    <bpmn:sequenceFlow id="flow_59" sourceRef="defense_schedule" targetRef="plagiarism_responsible"/>
+    <bpmn:sequenceFlow id="flow_60" sourceRef="plagiarism_responsible" targetRef="organize_defenses"/>
+    <bpmn:sequenceFlow id="flow_61" sourceRef="organize_defenses" targetRef="gw_bachelor_extra"/>
+    <bpmn:sequenceFlow id="flow_62" sourceRef="gw_bachelor_extra_join" targetRef="pj_main"/>
+    <bpmn:sequenceFlow id="flow_63" sourceRef="pj_main" targetRef="report_results"/>
+    <bpmn:sequenceFlow id="flow_64" sourceRef="report_results" targetRef="employment"/>
+    <bpmn:sequenceFlow id="flow_65" sourceRef="employment" targetRef="archive"/>
+    <bpmn:sequenceFlow id="flow_66" sourceRef="archive" targetRef="end"/>
+    <bpmn:sequenceFlow id="flow_67" sourceRef="distribute_topics_timer" targetRef="escalate_distribute_topics"/>
+    <bpmn:sequenceFlow id="flow_68" sourceRef="escalate_distribute_topics" targetRef="end_escalate_distribute_topics"/>
+  </bpmn:process>
+</bpmn:definitions>

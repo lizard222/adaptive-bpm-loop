@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import Button from "./components/Button.jsx";
-import { CAN_SEE_CORRECTIONS, hasRole } from "./roles.js";
+import { CAN_SEE_CORRECTIONS, STAFF, STUDENT_ONLY, hasRole } from "./roles.js";
 import { useTheme } from "./useTheme.js";
 
 // roles — необязательно; если не задано, пункт виден всем аутентифицированным
@@ -8,10 +8,11 @@ import { useTheme } from "./useTheme.js";
 // уровне контента, как было раньше (пункт был виден всем, но содержимое
 // заменялось на "нет доступа" — путало ролей вроде supervisor/secretary).
 const NAV_ITEMS = [
-  { to: "/overview", label: "Обзор" },
-  { to: "/processes", label: "Процессы" },
+  { to: "/my-defense", label: "Моя защита", roles: STUDENT_ONLY },
+  { to: "/overview", label: "Обзор", roles: STAFF },
+  { to: "/processes", label: "Процессы", roles: STAFF },
   { to: "/tasks", label: "Задачи" },
-  { to: "/documents", label: "Документы" },
+  { to: "/documents", label: "Документы", roles: STAFF },
   { to: "/corrections", label: "Корректировки", roles: CAN_SEE_CORRECTIONS },
 ];
 

@@ -30,7 +30,7 @@ export default function Login({ onLogin, error, busy }) {
         {error && <p className="mt-4 text-sm text-status-critical">{error}</p>}
         <p className="mt-6 text-xs text-ink-muted">
           Демо-пользователи (api/auth.py): dept_head/dept_head · supervisor/supervisor ·
-          secretary/secretary · normcontrol/normcontrol · admin/admin
+          secretary/secretary · normcontrol/normcontrol · student/student · admin/admin
         </p>
       </div>
     </div>

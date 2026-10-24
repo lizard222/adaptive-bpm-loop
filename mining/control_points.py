@@ -43,13 +43,16 @@ EXPERIMENT_CONTROL_POINTS = [
 # Модель "Защита ВКР" (bpmn/demo/vkr_defense.bpmn) — первая реальная модель
 # процесса, к которому сужена тема (не абстрактная заглушка). Первая, что
 # сочетает НЕСКОЛЬКО контрольных точек (как WORKLOAD_CONTROL_POINTS) с
-# ПАРАМЕТРИЗОВАННЫМИ таймерами (как EXPERIMENT_CONTROL_POINTS) — обе точки
+# ПАРАМЕТРИЗОВАННЫМИ таймерами (как EXPERIMENT_CONTROL_POINTS) — все точки
 # используют одни и те же reminder_days/escalation_days процесса, отдельных
 # параметров на точку пока нет (ProcessParams в experiment/params.py —
 # процесс-глобальная, не по-шаговая; расширение до по-шаговых параметров —
-# вне объёма этой минимальной модели). Шаги admission_order/defense
-# сознательно без контрольных точек — см. шапку vkr_defense.bpmn.
+# вне объёма этой минимальной модели). Шаги report_2/publish_final/
+# admission_order/defense без контрольных точек — см. шапку vkr_defense.bpmn.
 VKR_DEFENSE_CONTROL_POINTS = [
     ControlPoint(task="approve_topics", reminder_activity="remind_topics", escalation_activity="escalate_topics"),
+    # Шаг студента (E13): просрочки самого студента теперь видны контуру
+    # адаптации — раньше в модели не было ни одного шага студента.
+    ControlPoint(task="publish_for_normcontrol", reminder_activity="remind_publish", escalation_activity="escalate_publish"),
     ControlPoint(task="normcontrol", reminder_activity="remind_normcontrol", escalation_activity="escalate_normcontrol"),
 ]

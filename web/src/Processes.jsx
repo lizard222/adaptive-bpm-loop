@@ -15,6 +15,7 @@ import { useApiData } from "./useApiData.js";
 import { useListControls, compareByDate, compareByString } from "./useListControls.js";
 import { CAN_LAUNCH_PROCESS, hasRole } from "./roles.js";
 import { fmtPct, fmtDate, escalationSeverity } from "./format.js";
+import { MILESTONE_LABELS, milestonesFromInputs, toLocalInput } from "./milestones.js";
 
 // "По умолчанию" — без compare, сохраняет порядок, в котором прислал
 // бэкенд (активные → завершённые → алфавит, см. api/dashboard.py).
@@ -103,6 +104,7 @@ export default function Processes({ user }) {
                 {pageItems.map((p) => (
                   <ProcessRow
                     key={p.process_key}
+                    user={user}
                     process={p}
                     isOpen={expanded.has(p.process_key)}
                     onToggle={() => toggle(p.process_key)}
@@ -126,18 +128,23 @@ function LaunchPanel({ onLaunched }) {
   const { data } = useApiData(api.listLaunchableProcesses);
   const [selected, setSelected] = useState("");
   const [student, setStudent] = useState("student");
+  const [dates, setDates] = useState({ predefense_at: "", defense_at: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
   const options = data?.processes || [];
   if (!options.length) return null; // реестр пуст — запускать вручную нечего
   const current = selected || options[0].process_key;
+  const currentProcess = options.find((p) => p.process_key === current);
 
   async function launch() {
     setBusy(true);
     setError(null);
     try {
-      const result = await api.launchProcess(current, { student: student.trim() || undefined });
+      const result = await api.launchProcess(current, {
+        student: student.trim() || undefined,
+        milestones: currentProcess?.has_milestones ? milestonesFromInputs(dates) : undefined,
+      });
       showToast(
         `Запущен новый экземпляр: ${result.case_id}` + (result.student ? ` (студент: ${result.student})` : ""),
       );
@@ -171,23 +178,40 @@ function LaunchPanel({ onLaunched }) {
             className="sm:w-48"
           />
         </FormField>
+        {currentProcess?.has_milestones &&
+          Object.entries(MILESTONE_LABELS).map(([key, label]) => (
+            <FormField key={key} label={`${label} (можно позже)`}>
+              <Input
+                type="datetime-local"
+                value={dates[key]}
+                onChange={(e) => setDates({ ...dates, [key]: e.target.value })}
+              />
+            </FormField>
+          ))}
         <Button variant="primary" onClick={launch} busy={busy} busyLabel="Запускаю…">
           Запустить новый экземпляр
         </Button>
       </div>
+      {currentProcess?.has_milestones && currentProcess.kind === "test" && (
+        <p className="mt-2 text-xs text-ink-muted">
+          В тестовой модели сроки от дат считаются в минутах: «за 14 дней до защиты» — это за 14 минут. Ставьте
+          защиту на 20–30 минут вперёд.
+        </p>
+      )}
       {error && <p className="mt-2 text-sm text-status-critical">{error}</p>}
     </Card>
   );
 }
 
-function ProcessRow({ process, isOpen, onToggle }) {
-  const { process_key, kind, active_instances, completed_instances, params, latest_report } = process;
+function ProcessRow({ user, process, isOpen, onToggle }) {
+  const { process_key, kind, active_instances, completed_instances, params, model, latest_report } = process;
   return (
     <div className="rounded-md border border-gridline dark:border-white/10">
       <button onClick={onToggle} className="flex w-full items-center justify-between px-4 py-3 text-left">
         <span className="flex items-center gap-2">
           <span className="font-mono text-sm text-ink dark:text-ink-dark">{process_key}</span>
           {kind === "test" && <Badge tone="warning">тест, быстрые таймеры</Badge>}
+          {model?.version > 0 && <Badge tone="accent">модель v{model.version}</Badge>}
         </span>
         <span className="flex items-center gap-4 text-xs text-ink-muted">
           <span>{active_instances} активных</span>
@@ -217,10 +241,19 @@ function ProcessRow({ process, isOpen, onToggle }) {
               hint={params ? `версия ${params.version}` : "нет данных"}
             />
           </div>
+          {model?.version > 0 && (
+            <p className="mb-4 text-sm text-ink-secondary dark:text-ink-dark-secondary">
+              Модель v{model.version}: контрольные точки добавлены корректировками на шаги{" "}
+              <span className="font-mono text-ink dark:text-ink-dark">{model.added_checkpoints.join(", ")}</span>
+              {model.created_at && <> · {fmtDate(model.created_at)}</>}. Новые экземпляры запускаются по этой версии,
+              начатые раньше — доходят по своей.
+            </p>
+          )}
           {latest_report && latest_report.control_points.length > 0 && (
             <ControlPointsTable rows={latest_report.control_points} />
           )}
-          <InstancesTable processKey={process_key} />
+          {latest_report?.monitored_steps?.length > 0 && <MonitoredStepsTable rows={latest_report.monitored_steps} />}
+          <InstancesTable processKey={process_key} canEditDates={hasRole(user, CAN_LAUNCH_PROCESS)} />
         </div>
       )}
     </div>
@@ -232,9 +265,15 @@ function ProcessRow({ process, isOpen, onToggle }) {
 // сразу для всех процессов на странице. Сворачивание/разворачивание заново
 // перезапрашивает свежие данные — недорого, т.к. эндпоинт ограничен 50
 // последними экземплярами ОДНОГО процесса.
-function InstancesTable({ processKey }) {
+function InstancesTable({ processKey, canEditDates }) {
   const { data, error, loading, refresh } = useApiData(() => api.listProcessInstances(processKey), [processKey]);
+  const [editing, setEditing] = useState(null);
   const instances = data?.instances || [];
+  const withDates = !!data?.milestones_supported;
+  const columns = ["Case ID", "Статус", "Текущий шаг"];
+  if (withDates) columns.push("Предзащита", "Защита");
+  columns.push("Обновлён");
+  if (withDates && canEditDates) columns.push("");
 
   return (
     <div className="mt-4 border-t border-gridline pt-4 dark:border-white/10">
@@ -254,7 +293,7 @@ function InstancesTable({ processKey }) {
         <EmptyState message="Нет ни одного экземпляра этого процесса." />
       ) : (
         <Table
-          columns={["Case ID", "Статус", "Текущий шаг", "Обновлён"]}
+          columns={columns}
           rows={instances}
           rowKey={(i) => i.case_id}
           renderRow={(i) => (
@@ -268,13 +307,139 @@ function InstancesTable({ processKey }) {
               <td className="py-2 pr-3 text-ink dark:text-ink-dark">
                 {i.current_tasks.length > 0 ? i.current_tasks.join(", ") : "—"}
               </td>
+              {withDates &&
+                Object.keys(MILESTONE_LABELS).map((key) => (
+                  <td key={key} className="py-2 pr-3 text-xs tabular-nums text-ink dark:text-ink-dark">
+                    {i.milestones?.[key] ? fmtDate(i.milestones[key]) : <span className="text-ink-muted">не назначена</span>}
+                  </td>
+                ))}
               <td className="py-2 pr-3 text-xs tabular-nums text-ink-secondary dark:text-ink-dark-secondary">
                 {fmtDate(i.updated_at)}
               </td>
+              {withDates && canEditDates && (
+                <td className="py-2">
+                  {i.status === "active" && (
+                    <Button variant="ghost" onClick={() => setEditing(i)}>
+                      Даты
+                    </Button>
+                  )}
+                </td>
+              )}
             </>
           )}
         />
       )}
+      {editing && (
+        <MilestonesDialog
+          instance={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Назначение/перенос дат предзащиты и защиты идущего экземпляра (E14). Перенос
+// переносит и сроки шагов, уже взведённые движком; студент видит перенос в ленте.
+function MilestonesDialog({ instance, onClose, onSaved }) {
+  const showToast = useToast();
+  const [inputs, setInputs] = useState({
+    predefense_at: toLocalInput(instance.milestones?.predefense_at),
+    defense_at: toLocalInput(instance.milestones?.defense_at),
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.setMilestones(instance.case_id, milestonesFromInputs(inputs));
+      showToast("Даты сохранены — сроки шагов пересчитаны");
+      onSaved();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-xl border border-gridline bg-surface p-5 shadow-popover dark:border-white/10 dark:bg-surface-dark"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <h3 className="text-sm font-semibold text-ink dark:text-ink-dark">Даты защиты</h3>
+        <p className="mt-1 font-mono text-xs text-ink-muted">{instance.case_id}</p>
+        <div className="mt-4 flex flex-col gap-3">
+          {Object.entries(MILESTONE_LABELS).map(([key, label]) => (
+            <FormField key={key} label={label}>
+              <Input
+                type="datetime-local"
+                value={inputs[key]}
+                onChange={(e) => setInputs({ ...inputs, [key]: e.target.value })}
+              />
+            </FormField>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-ink-muted">
+          Сроки предзащиты, публикации финальных версий, приказа о допуске и защиты считаются от этих дат. Если новый
+          срок уже прошёл, напоминание и эскалация сработают сразу.
+        </p>
+        {error && <p className="mt-2 text-sm text-status-critical">{error}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Отмена
+          </Button>
+          <Button variant="primary" onClick={save} busy={busy} busyLabel="Сохраняю…">
+            Сохранить
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// E15: шаги без контрольной точки — как часто они длятся дольше нормы (срока
+// напоминания процесса). От 30% — анализ предлагает добавить контрольную точку.
+function fmtSpan(seconds) {
+  if (seconds === null || seconds === undefined) return "—";
+  return seconds < 3600 ? `${Math.round(seconds / 60)} мин` : `${(seconds / 86400).toFixed(1)} дн.`;
+}
+
+function MonitoredStepsTable({ rows }) {
+  return (
+    <div className="mt-4">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">Шаги без контрольной точки</h3>
+      <Table
+        columns={["Шаг", "Экземпляров", "Норма", "Медиана", "Дольше нормы"]}
+        rows={rows}
+        rowKey={(s) => s.task}
+        renderRow={(s) => (
+          <>
+            <td className="py-2 pr-3 text-ink dark:text-ink-dark">{s.task}</td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">{s.n_cases}</td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">
+              {fmtSpan(s.norm_seconds)}
+            </td>
+            <td className="py-2 pr-3 tabular-nums text-ink-secondary dark:text-ink-dark-secondary">
+              {fmtSpan(s.median_seconds)}
+            </td>
+            <td className="py-2">
+              <Badge tone={s.slow_fraction >= 0.3 ? "serious" : "good"}>
+                {fmtPct(s.slow_fraction)} · {s.slow_fraction >= 0.3 ? "нужна контрольная точка" : "в норме"}
+              </Badge>
+            </td>
+          </>
+        )}
+      />
     </div>
   );
 }

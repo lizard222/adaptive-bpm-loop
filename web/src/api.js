@@ -94,11 +94,24 @@ export function listProcessInstances(processKey) {
 
 // student — логин студента, чья это защита (E13); без него экземпляр
 // запускается, но его не увидит ни один студент в «Моей защите».
-export function launchProcess(processKey, { student } = {}) {
+// milestones — {predefense_at, defense_at} в ISO с часовым поясом (E14), можно не задавать.
+export function launchProcess(processKey, { student, milestones } = {}) {
+  const body = {};
+  if (student) body.student = student;
+  if (milestones && Object.values(milestones).some(Boolean)) body.milestones = milestones;
   return request(`/processes/${encodeURIComponent(processKey)}/launch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(student ? { student } : {}),
+    body: JSON.stringify(body),
+  });
+}
+
+// Назначить/перенести даты предзащиты и защиты (E14, api/milestones.py).
+export function setMilestones(caseId, milestones) {
+  return request(`/cases/${encodeURIComponent(caseId)}/milestones`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(milestones),
   });
 }
 

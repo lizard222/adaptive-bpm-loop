@@ -11,16 +11,17 @@
 watch_activities сопоставляет id BPMN-задачи со "смыслом" контрольной точки
 (например, {"remind": "напоминание", "escalate": "эскалация"}).
 
-E3 (часть T-25) — статус ЧЕСТНО НЕ ПОЛНЫЙ, зафиксировано явно: Контролер
-теперь ПРИНИМАЕТ уведомление от Аналитик-Адаптера о новой версии параметров
-(ParamsListener) — раньше (до E3) не было вообще ни одного receive-поведения,
-уведомление уходило в никуда. Но ДИНАМИЧЕСКОЕ добавление новых контрольных
-точек из корректировок add_checkpoint (ФТ-А-К-4) не реализовано: сама
-Correction (mining/corrections.py) хранит только target — id пропущенного
-шага, а не reminder_activity/escalation_activity, которые нужны, чтобы
-собрать новую запись ControlPoint для watch_activities. Без этой информации
-в структуре корректировки автоматически расширить словарь нечем. Это
-следующий шаг после текущего E3, не сделанный здесь.
+E3 (часть T-25): Контролер принимает уведомление от Аналитик-Адаптера о новой
+версии параметров (ParamsListener) — до E3 не было ни одного receive-поведения.
+
+E15 (ФТ-А-К-4, закрывает остаток T-25): если уведомление сообщает о новой
+версии МОДЕЛИ (принятая add_checkpoint поставила контрольную точку на шаг),
+Контролер начинает следить и за новой точкой. Раньше расширить
+watch_activities было нечем: Correction знает только id шага. Теперь имена
+активностей выводятся из id шага по соглашению
+(mining.control_points.added_control_point), а сам список добавленных точек
+Контролер перечитывает из БД (agents/model_store.py) — тело сообщения не
+источник истины.
 """
 from __future__ import annotations
 
@@ -30,6 +31,10 @@ import psycopg
 from spade.agent import Agent
 from spade.behaviour import CyclicBehaviour, PeriodicBehaviour
 from spade.message import Message
+
+from mining.control_points import added_control_point
+
+from .model_store import current_version
 
 logger = logging.getLogger("agents.controller")
 
@@ -53,6 +58,19 @@ class ControllerAgent(Agent):
         self.dispatched: list[dict] = []  # для наблюдения из тестов
         self.received_notifications: list[dict] = []  # для наблюдения из тестов
 
+    @property
+    def watched_activities(self) -> dict[str, str]:
+        return dict(self._watch)
+
+    def watch_added_checkpoints(self, process_key: str) -> None:
+        """E15: добавить в отслеживаемые точки текущей версии модели процесса."""
+        _, added = current_version(self._database_url, process_key)
+        for task in added:
+            cp = added_control_point(task)
+            self._watch.setdefault(cp.reminder_activity, "напоминание")
+            self._watch.setdefault(cp.escalation_activity, "эскалация")
+        logger.info("Контрольные точки %s (%s) добавлены в отслеживаемые", added, process_key)
+
     async def setup(self) -> None:
         with psycopg.connect(self._database_url) as conn:
             row = conn.execute("SELECT coalesce(max(event_id), 0) FROM event_log").fetchone()
@@ -62,9 +80,8 @@ class ControllerAgent(Agent):
 
     class ParamsListener(CyclicBehaviour):
         """Приёмное поведение (E3): подтверждает уведомление от Аналитик-
-        Адаптера. См. докстринг модуля — динамическое расширение
-        watch_activities из него НЕ выполняется (не хватает данных в
-        Correction), поведение только логирует факт получения."""
+        Адаптера; при новой версии модели (E15) добавляет её контрольные
+        точки в отслеживаемые."""
 
         async def run(self) -> None:
             msg = await self.receive(timeout=5)
@@ -76,6 +93,9 @@ class ControllerAgent(Agent):
                 "body": msg.body,
             })
             logger.info("Получено уведомление о новой версии параметров: %s", msg.body)
+            if msg.get_metadata("model_version"):
+                self.agent.watch_added_checkpoints(msg.get_metadata("process_key"))
+
 
     class Watch(PeriodicBehaviour):
         async def run(self) -> None:

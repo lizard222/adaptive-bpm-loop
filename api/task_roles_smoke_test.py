@@ -129,6 +129,10 @@ def main() -> int:
     check("нормоконтролёр выполняет normcontrol -> 200", complete("normcontrol", "normcontrol") == 200)
 
     check("студент выполняет публикацию финальных версий -> 200", complete("student", "publish_final") == 200)
+    check("руководитель ВКР видит отзыв и рецензию", visible("supervisor") == ["supervisor_review"])
+    check("у шага без срока в регламенте (отзыв) срока нет", task_row("supervisor", "supervisor_review")["due_at"] is None)
+    check("секретарь не может выполнить отзыв -> 403", complete("secretary", "supervisor_review") == 403)
+    check("руководитель ВКР выполняет отзыв -> 200", complete("supervisor", "supervisor_review") == 200)
     check("у шага без таймера (admission_order) срока нет", task_row("secretary", "admission_order")["due_at"] is None)
     check("секретарь выполняет admission_order -> 200", complete("secretary", "admission_order") == 200)
     check("секретарь выполняет defense -> 200", complete("secretary", "defense") == 200)

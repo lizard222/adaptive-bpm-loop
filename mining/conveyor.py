@@ -22,13 +22,14 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 
 import pm4py
 
 from eventlog.xes_export import load_event_log_df
 
-from .control_points import ControlPoint
+from .control_points import ControlPoint, MonitoredStep
 
 
 @dataclass
@@ -70,6 +71,37 @@ class ControlPointStats:
 
 
 @dataclass
+class StepDurationStats:
+    """Длительность шага без контрольной точки за цикл (E15).
+
+    over_norm — сколько экземпляров провели на шаге дольше нормы (срок
+    напоминания процесса: столько система обычно ждёт исполнителя, прежде чем
+    напомнить). Систематически долгий шаг без контроля — сигнал добавить
+    контрольную точку (mining/corrections.py).
+    """
+
+    task: str
+    n_cases: int
+    over_norm: int
+    norm_seconds: float
+    median_seconds: float | None
+
+    @property
+    def slow_fraction(self) -> float:
+        return self.over_norm / self.n_cases if self.n_cases else 0.0
+
+    def __str__(self) -> str:
+        return f"{self.task}: дольше нормы {self.over_norm} из {self.n_cases} (без контрольной точки)"
+
+    def to_dict(self) -> dict:
+        return {
+            "task": self.task, "n_cases": self.n_cases, "over_norm": self.over_norm,
+            "slow_fraction": round(self.slow_fraction, 4), "norm_seconds": self.norm_seconds,
+            "median_seconds": self.median_seconds,
+        }
+
+
+@dataclass
 class ConveyorReport:
     """Известное ограничение (не устраняется в v1): конвертация BPMN → сеть
     Петри в pm4py не вполне точно передаёт семантику граничных событий. Для
@@ -90,6 +122,7 @@ class ConveyorReport:
     skipped_activities: Counter = field(default_factory=Counter)   # активность -> сколько раз пропущена (model move)
     unexpected_activities: Counter = field(default_factory=Counter)  # активность -> сколько раз лишняя (log move)
     control_points: dict[str, ControlPointStats] = field(default_factory=dict)  # task -> статистика по шагу
+    monitored_steps: dict[str, StepDurationStats] = field(default_factory=dict)  # шаги без контроля (E15)
 
     def __str__(self) -> str:
         fit = f"{self.fitness:.2f}" if self.fitness is not None else "—"
@@ -112,6 +145,7 @@ class ConveyorReport:
             "skipped_activities": dict(self.skipped_activities),
             "unexpected_activities": dict(self.unexpected_activities),
             "control_points": {task: cp.to_dict() for task, cp in self.control_points.items()},
+            "monitored_steps": {task: st.to_dict() for task, st in self.monitored_steps.items()},
         }
 
 
@@ -148,13 +182,42 @@ def _control_point_stats(log_df, control_points: list[ControlPoint]) -> dict[str
     return stats
 
 
+def _monitored_step_stats(log_df, steps: list[MonitoredStep], norm: timedelta) -> dict[str, StepDurationStats]:
+    """Длительность = завершение шага − завершение предыдущего шага, по
+    экземплярам, где есть оба события. Выполнение человеком оркестратор пишет
+    с lifecycle 'complete' (Orchestrator.complete_task), переходы внутри
+    движка — 'completed'; учитываются оба."""
+    done = log_df[log_df["lifecycle:transition"].isin(("complete", "completed"))]
+    finished_at = done.groupby(["case:concept:name", "concept:name"])["time:timestamp"].max()
+    stats: dict[str, StepDurationStats] = {}
+    for step in steps:
+        durations = []
+        for case_id in done["case:concept:name"].unique():
+            end, start = finished_at.get((case_id, step.task)), finished_at.get((case_id, step.previous))
+            if end is not None and start is not None:
+                durations.append((end - start).total_seconds())
+        durations.sort()
+        stats[step.task] = StepDurationStats(
+            task=step.task, n_cases=len(durations),
+            over_norm=sum(1 for d in durations if d > norm.total_seconds()),
+            norm_seconds=norm.total_seconds(),
+            median_seconds=durations[len(durations) // 2] if durations else None,
+        )
+    return stats
+
+
 def analyze_cycle(
     database_url: str,
     process_key: str,
     bpmn_file: Path,
     control_points: list[ControlPoint],
     case_ids: list[str] | None = None,
+    monitored_steps: list[MonitoredStep] | None = None,
+    norm: timedelta | None = None,
 ) -> ConveyorReport:
+    """monitored_steps/norm (E15) — шаги без контрольной точки и норма их
+    длительности; шаги, на которые точка уже есть в control_points (добавлена
+    корректировкой), не отслеживаются."""
     log_df = load_event_log_df(database_url, process_key=process_key, case_ids=case_ids)
     n_cases = log_df["case:concept:name"].nunique()
 
@@ -203,6 +266,9 @@ def analyze_cycle(
         skipped_activities=skipped,
         unexpected_activities=unexpected,
         control_points=_control_point_stats(log_df, control_points),
+        monitored_steps=_monitored_step_stats(
+            log_df, [s for s in monitored_steps or [] if s.task not in {cp.task for cp in control_points}], norm,
+        ) if monitored_steps and norm is not None and n_cases else {},
     )
 
 

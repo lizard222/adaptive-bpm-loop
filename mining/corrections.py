@@ -12,9 +12,16 @@
      доля напоминаний без эскалации выше порога, но эскалаций мало ->
      более мягкий сигнал: пересмотр нормативной длительности
      (kind="review_duration") — норматив занижен, но процесс пока справляется;
-  2. систематический пропуск шага — доля пропусков (model move из
-     conformance checking) выше порога -> добавление контрольной точки
-     (kind="add_checkpoint");
+  2. шагу нужен контроль -> добавление контрольной точки (kind="add_checkpoint"),
+     два признака:
+     а) систематический пропуск шага — доля пропусков (model move из
+        conformance checking) выше порога. На журнале нашего движка не
+        срабатывает: движок шаги не пропускает (признак рассчитан на журналы,
+        расходящиеся с моделью);
+     б) E15: шаг БЕЗ контрольной точки систематически затягивается — доля
+        экземпляров, где он длился дольше нормы (срока напоминания процесса),
+        выше порога. Принятая корректировка — структурная адаптация: новая
+        версия модели с контрольной точкой на этом шаге (agents/model_store.py);
   3. узкое место — НЕ реализовано в v1: требует данных о загрузке нескольких
      исполнителей одной роли, которых нет в текущей закрытой синтетической
      системе (один синтетический исполнитель на шаг, simgen/executor.py).
@@ -38,6 +45,7 @@ class Thresholds:
     escalation_fraction: float = 0.15  # доля эскалаций по шагу -> систематическая просрочка
     late_fraction: float = 0.30        # доля напоминаний (без эскалации) -> норматив занижен
     skip_fraction: float = 0.20        # доля пропусков шага -> систематический пропуск
+    slow_fraction: float = 0.30        # E15: доля «дольше нормы» у шага без контроля -> нужна контрольная точка
     min_sample_size: int = 5           # меньше — корректировки не предлагаются (шум выборки)
 
 
@@ -108,4 +116,31 @@ def propose_corrections(report: ConveyorReport, thresholds: Thresholds = Thresho
                 ),
             ))
 
+    for st in report.monitored_steps.values():
+        if st.n_cases < thresholds.min_sample_size or st.slow_fraction < thresholds.slow_fraction:
+            continue
+        corrections.append(Correction(
+            process_key=report.process_key,
+            kind="add_checkpoint",
+            target=st.task,
+            evidence={
+                "slow_fraction": round(st.slow_fraction, 3), "over_norm": st.over_norm, "n_cases": st.n_cases,
+                "norm_seconds": st.norm_seconds, "median_seconds": st.median_seconds,
+            },
+            justification=(
+                f"У шага «{st.task}» нет контрольной точки, и в {st.slow_fraction:.0%} экземпляров "
+                f"({st.over_norm} из {st.n_cases}) он длился дольше нормы ({_span(st.norm_seconds)}; "
+                f"медиана — {_span(st.median_seconds)}). Предлагается добавить контрольную точку: "
+                f"напоминание и эскалацию, как на остальных шагах."
+            ),
+        ))
+
     return corrections
+
+
+def _span(seconds: float | None) -> str:
+    if seconds is None:
+        return "—"
+    if seconds < 3600:
+        return f"{seconds / 60:.0f} мин"
+    return f"{seconds / 86400:.1f} дн."

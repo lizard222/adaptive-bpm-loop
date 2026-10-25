@@ -116,7 +116,7 @@ TASKS = {
     "normcontrol": ("Нормоконтроль", "lane_normcontrol", [14], [14], "оба", "normcontrol"),
     "publish_final": ("Публикация финальных версий в Moodle", "lane_student", [15], [15], "оба", "publish_final"),
     "plagiarism_check": ("Проверка на заимствования и справка", "lane_plagiarism", [17], [18], "оба", None),
-    "supervisor_review": ("Отзыв руководителя и рецензия", "lane_supervisor", [], [19], "только магистратура", None),
+    "supervisor_review": ("Отзыв руководителя и рецензия", "lane_supervisor", [], [19], "только магистратура", "supervisor_review"),
     "admission_order": ("Приказ о допуске к защите", "lane_secretary", [], [17], "оба (см. примечание)", "admission_order"),
     "handover_to_gek": ("Передача ВКР, отзыва, рецензии и справки в ГЭК", "lane_secretary", [], [20], "только магистратура", None),
     "docs_check": ("Проверка комплекта документов секретарём", "lane_secretary", [], [21], "только магистратура", None),
@@ -141,6 +141,8 @@ CONTROL_POINTS = {
 
 NOTES = {
     "distribute_topics": "В рабочей модели ВРБ.01/02 объединены в один шаг approve_topics.",
+    "supervisor_review": "В каталоге — только МД.19; в рабочей модели — для обоих уровней, как приказ о допуске. "
+                         "Срока регламент не задаёт — на этом шаге проверяется структурная адаптация (E15).",
     "admission_order": "В каталоге БПБак.ВРБ приказа о допуске нет (есть только в МД.17); в to-be — для обоих "
                        "уровней: шаг есть в рабочей модели и в шаблоне templates/vkr_admission_order.docx. "
                        "Расхождение каталога стоит уточнить на кафедре.",
@@ -378,8 +380,8 @@ def build_traceability() -> str:
         "",
         "## Отличия to-be модели от рабочей модели `vkr_defense`",
         "",
-        "- Рабочая модель — 7 шагов (`approve_topics`, `report_2`, `publish_for_normcontrol`, `normcontrol`, "
-        "`publish_final`, `admission_order`, `defense`) на одного студента, со студентом как участником "
+        "- Рабочая модель — 8 шагов (`approve_topics`, `report_2`, `publish_for_normcontrol`, `normcontrol`, "
+        "`publish_final`, `supervisor_review`, `admission_order`, `defense`) на одного студента, со студентом как участником "
         "(дорожка «Студент», экран «Моя защита»); to-be — 29 шагов на выпуск с подпроцессом по студентам. "
         "Один экземпляр = один студент — это нужно для анализа журнала событий: case = траектория студента.",
         "- В рабочей модели у предзащиты нет ветки «не прошёл → выговор», а контрольных точек с таймерами — 3 "

@@ -101,8 +101,8 @@ def main() -> int:
     check("чужую защиту студент не видит", my_view(other) is None)
     check("защита шага проверки порядка (другой студент) тоже не видна", my_view(order_case) is None)
     stages = {s["step"]: s for s in view["stages"]}
-    check("7 этапов, текущий — утверждение темы",
-          len(view["stages"]) == 7 and view["current"] == "approve_topics"
+    check("8 этапов, текущий — утверждение темы",
+          len(view["stages"]) == 8 and view["current"] == "approve_topics"
           and stages["approve_topics"]["status"] == "current"
           and all(s["status"] == "upcoming" for s in view["stages"][1:]))
     check("у текущего этапа срок из таймера и отметка «в срок»",

@@ -26,16 +26,19 @@ mining/corrections.py), предъявляет предложения уполн
 experiment/params.apply_corrections). Планировщик (T-33) реально читает
 process_params_current перед каждым запуском экземпляра — контур адаптации
 теперь замкнут и в живой системе, не только в эксперименте (E3 закрывает
-пробел, найденный при подготовке фазы E). Контролер пока только принимает
-уведомление (см. agents/controller_agent.py) — динамическое добавление
-новых контрольных точек из add_checkpoint корректировок не реализовано,
-задокументировано отдельно.
+пробел, найденный при подготовке фазы E).
+
+Структурная адаптация (E15): принятая add_checkpoint для процесса с
+model_builder в реестре порождает новую версию модели с контрольной точкой на
+шаге (agents/model_store.py). Уведомление о новой версии несёт номер версии
+модели и добавленные точки — Контролер начинает за ними следить.
 """
 from __future__ import annotations
 
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 
 import psycopg
@@ -44,10 +47,11 @@ from spade.behaviour import OneShotBehaviour
 from spade.message import Message
 
 from experiment.params import ProcessParams
-from mining.control_points import ControlPoint
+from mining.control_points import ControlPoint, MonitoredStep
 from mining.conveyor import ConveyorReport, analyze_cycle
 from mining.corrections import Correction, Thresholds, propose_corrections
 
+from .model_store import apply_structural
 from .params_store import apply_and_store
 
 
@@ -59,6 +63,9 @@ class CycleAnalysisResult:
     accepted: list[Correction] = field(default_factory=list)
     rejected: list[Correction] = field(default_factory=list)
     version: int | None = None
+    # E15: новая версия модели, если принятые корректировки изменили её структуру
+    model_version: int | None = None
+    added_checkpoints: tuple[str, ...] = ()
 
 
 class AnalystAdapterAgent(Agent):
@@ -92,10 +99,15 @@ class AnalystAdapterAgent(Agent):
         control_points: list[ControlPoint],
         case_ids: list[str] | None = None,
         mode: str = "propose",
+        monitored_steps: list[MonitoredStep] | None = None,
+        norm: timedelta | None = None,
     ) -> CycleAnalysisResult:
         """Запускает анализ цикла как SPADE-поведение (отправка/приём сообщений
-        доступны только внутри Behaviour) и дожидается его завершения."""
-        behaviour = _ProcessCycleBehaviour(process_key, bpmn_file, control_points, case_ids, mode)
+        доступны только внутри Behaviour) и дожидается его завершения.
+        monitored_steps/norm (E15) — шаги без контрольной точки и норма их
+        длительности, см. mining.conveyor.analyze_cycle."""
+        behaviour = _ProcessCycleBehaviour(process_key, bpmn_file, control_points, case_ids, mode,
+                                           monitored_steps, norm)
         self.add_behaviour(behaviour)
         await behaviour.join()
         self.last_result = behaviour.result
@@ -118,7 +130,7 @@ class AnalystAdapterAgent(Agent):
 
     def apply_corrections(
         self, process_key: str, accepted: list[Correction], mode: str,
-    ) -> tuple[int, ProcessParams]:
+    ) -> tuple[int, ProcessParams, tuple[int, tuple[str, ...]] | None]:
         with psycopg.connect(self.database_url) as conn:
             version = conn.execute(
                 "SELECT coalesce(max(version), 0) + 1 FROM applied_corrections WHERE process_key = %s",
@@ -136,7 +148,9 @@ class AnalystAdapterAgent(Agent):
         # process_params_current (E3) — состояние, реально читаемое Планировщиком;
         # тот же маппинг «корректировка -> параметр», что и в эксперименте.
         updated_params = apply_and_store(self.database_url, process_key, self.default_params, accepted, version)
-        return version, updated_params
+        # E15: структурная часть — новая версия модели (None, если модель не изменилась)
+        model = apply_structural(self.database_url, process_key, accepted, version)
+        return version, updated_params, model
 
 
 class _ProcessCycleBehaviour(OneShotBehaviour):
@@ -147,6 +161,8 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
         control_points: list[ControlPoint],
         case_ids: list[str] | None,
         mode: str,
+        monitored_steps: list[MonitoredStep] | None = None,
+        norm: timedelta | None = None,
     ):
         super().__init__()
         self.process_key = process_key
@@ -154,13 +170,15 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
         self.control_points = control_points
         self.case_ids = case_ids
         self.mode = mode
+        self.monitored_steps = monitored_steps
+        self.norm = norm
         self.result: CycleAnalysisResult | None = None
 
     async def run(self) -> None:
         agent: AnalystAdapterAgent = self.agent
 
         report = analyze_cycle(agent.database_url, self.process_key, self.bpmn_file,
-                                self.control_points, self.case_ids)
+                                self.control_points, self.case_ids, self.monitored_steps, self.norm)
         corrections = propose_corrections(report, agent.thresholds)
         agent.save_report(self.process_key, report, corrections)
 
@@ -174,13 +192,15 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
         rejected = [c for c in corrections if c not in accepted]
 
         version = None
+        model = None
         if accepted:
-            version, updated_params = agent.apply_corrections(self.process_key, accepted, self.mode)
-            await self._notify_new_version(version, accepted, updated_params)
+            version, updated_params, model = agent.apply_corrections(self.process_key, accepted, self.mode)
+            await self._notify_new_version(version, accepted, updated_params, model)
 
         self.result = CycleAnalysisResult(
             process_key=self.process_key, report=report, proposed=corrections,
             accepted=accepted, rejected=rejected, version=version,
+            model_version=model[0] if model else None, added_checkpoints=model[1] if model else (),
         )
 
     async def _propose_and_collect(self, corrections: list[Correction]) -> list[Correction]:
@@ -214,7 +234,10 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
                 accepted.append(corr)
         return accepted
 
-    async def _notify_new_version(self, version: int, accepted: list[Correction], updated_params: ProcessParams) -> None:
+    async def _notify_new_version(
+        self, version: int, accepted: list[Correction], updated_params: ProcessParams,
+        model: tuple[int, tuple[str, ...]] | None = None,
+    ) -> None:
         agent: AnalystAdapterAgent = self.agent
         summary = ", ".join(f"{c.kind}({c.target})" for c in accepted)
         for jid in agent.notify_jids:
@@ -223,6 +246,10 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
             msg.set_metadata("event", "process_params_updated")
             msg.set_metadata("process_key", self.process_key)
             msg.set_metadata("version", str(version))
+            if model:
+                # E15: Контролер добавит эти точки в отслеживаемые (перечитав БД)
+                msg.set_metadata("model_version", str(model[0]))
+                msg.set_metadata("added_checkpoints", ",".join(model[1]))
             # Получатель НЕ обязан доверять телу сообщения — он перечитывает
             # process_params_current из БД сам (пуш — это триггер "проснись
             # раньше срока", а не источник истины). Значения в теле — для
@@ -230,5 +257,6 @@ class _ProcessCycleBehaviour(OneShotBehaviour):
             msg.body = (
                 f"{self.process_key}: версия параметров v{version} — принято: {summary}. "
                 f"reminder_days={updated_params.reminder_days}, escalation_days={updated_params.escalation_days}"
+                + (f"; модель v{model[0]}, контрольные точки добавлены на: {', '.join(model[1])}" if model else "")
             )
             await self.send(msg)

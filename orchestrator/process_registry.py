@@ -16,9 +16,11 @@ bpmn_file — ВСЕГДА берётся из этого реестра, ник
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
+from bpmn.demo.build_vkr_defense import build as build_vkr_defense
 from experiment.params import ProcessParams
 
 if TYPE_CHECKING:
@@ -39,6 +41,14 @@ class ProcessRegistration:
     # так же, как real (виден в GET /processes, можно нажать "Запустить"),
     # но НЕ засоряет дашборд и не подхватывается плановым автозапуском.
     kind: str = "real"
+    # E14: у модели есть сроки от дат предзащиты/защиты (VKR_DEFENSE_DATE_POINTS);
+    # значение — единица сдвигов от даты (день у боевой модели, минута у
+    # тестовой). None — процесс без дат, назначать их нельзя.
+    milestone_unit: timedelta | None = None
+    # E15: сборка модели с контрольными точками на перечисленных шагах —
+    # структурная адаптация (agents/model_store.py). None — модель
+    # фиксированная, корректировка add_checkpoint остаётся только сигналом.
+    model_builder: Callable[[tuple[str, ...]], str] | None = None
 
 
 PROCESS_REGISTRY: dict[str, ProcessRegistration] = {
@@ -48,6 +58,8 @@ PROCESS_REGISTRY: dict[str, ProcessRegistration] = {
         process_id="vkr_defense",
         default_params=ProcessParams(reminder_days=7, escalation_days=14),
         interval_seconds=3600,
+        milestone_unit=timedelta(days=1),
+        model_builder=lambda added: build_vkr_defense("vkr_defense", added),
     ),
     # Тот же процесс, что vkr_defense (те же имена шагов/активностей — можно
     # использовать mining.control_points.VKR_DEFENSE_CONTROL_POINTS без
@@ -62,6 +74,10 @@ PROCESS_REGISTRY: dict[str, ProcessRegistration] = {
         default_params=ProcessParams(reminder_days=1, escalation_days=2),
         interval_seconds=300,
         kind="test",
+        # «за 14 дней до защиты» здесь — за 14 минут: дату защиты для
+        # ручного теста ставят на 20–30 минут вперёд
+        milestone_unit=timedelta(minutes=1),
+        model_builder=lambda added: build_vkr_defense("vkr_defense_fast", added),
     ),
 }
 

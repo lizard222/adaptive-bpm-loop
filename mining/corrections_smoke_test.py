@@ -29,7 +29,7 @@ from simgen.executor import ExecutorProfile
 from simgen.run import run_cycle
 
 from .control_points import DEMO_CONTROL_POINTS
-from .conveyor import ConveyorReport, ControlPointStats, analyze_cycle
+from .conveyor import ConveyorReport, ControlPointStats, StepDurationStats, analyze_cycle
 from .corrections import Thresholds, propose_corrections
 
 BPMN = Path(__file__).parents[1] / "bpmn" / "demo" / "demo_process_days.bpmn"
@@ -103,6 +103,31 @@ def main() -> int:
 
     check("вручную заданный порог влияет на результат (конфигурируемость метода)",
           len(propose_corrections(crafted, Thresholds(skip_fraction=0.5))) == 0)
+
+    # --- E15: шаг без контрольной точки систематически затягивается ---
+    day = 86400.0
+
+    def slow_report(over: int, n: int = 20) -> ConveyorReport:
+        return ConveyorReport(
+            process_key="slow", n_cases=n, fitness=1.0, precision=1.0,
+            monitored_steps={"supervisor_review": StepDurationStats(
+                task="supervisor_review", n_cases=n, over_norm=over, norm_seconds=7 * day, median_seconds=9 * day)},
+        )
+
+    slow = propose_corrections(slow_report(over=9))
+    check("шаг без контроля дольше нормы в 45% экземпляров -> add_checkpoint на этот шаг",
+          [(c.kind, c.target) for c in slow] == [("add_checkpoint", "supervisor_review")])
+    check("в обосновании — доля, норма и медиана",
+          bool(slow) and "45%" in slow[0].justification and "7.0 дн." in slow[0].justification
+          and "9.0 дн." in slow[0].justification)
+    check("шаг без контроля, укладывающийся в норму (20% < 30%), — корректировки нет",
+          propose_corrections(slow_report(over=4)) == [])
+    check("порог доли «дольше нормы» конфигурируем",
+          propose_corrections(slow_report(over=4), Thresholds(slow_fraction=0.15)) != [])
+    few = ConveyorReport(process_key="slow", n_cases=20, fitness=1.0, precision=1.0, monitored_steps={
+        "supervisor_review": StepDurationStats("supervisor_review", n_cases=3, over_norm=3,
+                                               norm_seconds=7 * day, median_seconds=10 * day)})
+    check("мало экземпляров дошло до шага (3 < 5) — корректировки нет", propose_corrections(few) == [])
 
     print(f"\nИтого: {sum(checks)}/{len(checks)}")
     return 0 if all(checks) else 1

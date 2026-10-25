@@ -28,10 +28,11 @@ import psycopg  # noqa: E402
 import spade  # noqa: E402
 
 from api.config import settings  # noqa: E402
-from mining.control_points import VKR_DEFENSE_CONTROL_POINTS  # noqa: E402
+from mining.control_points import VKR_DEFENSE_CONTROL_POINTS, VKR_DEFENSE_MONITORED_STEPS  # noqa: E402
 from orchestrator.process_registry import PROCESS_REGISTRY  # noqa: E402
 
 from .analyst_adapter_agent import AnalystAdapterAgent  # noqa: E402
+from .model_store import control_points_for, current_model_file, current_version, step_norm  # noqa: E402
 from .interface_agent import InterfaceAgent  # noqa: E402
 
 PASSWORD = "analysis-cycle-password"
@@ -45,6 +46,10 @@ _CONTROL_POINTS_BY_PROCESS = {
     # vkr_defense (только таймеры в минутах, см. process_registry.py) —
     # контрольные точки переиспользуются без изменений.
     "vkr_defense_fast": VKR_DEFENSE_CONTROL_POINTS,
+}
+_MONITORED_BY_PROCESS = {
+    "vkr_defense": VKR_DEFENSE_MONITORED_STEPS,
+    "vkr_defense_fast": VKR_DEFENSE_MONITORED_STEPS,
 }
 
 
@@ -105,9 +110,14 @@ async def main(process_key: str, exclude: list[str], wait_seconds: float,
 
     interface = InterfaceAgent(interface_jid, PASSWORD, settings.database_url, tick_seconds=1.0)
     await interface.start(auto_register=True)
+    # default_params — базовые сроки ЭТОГО процесса из реестра. Без них агент
+    # брал свой умолчательный 7/14 и, применяя корректировку к процессу без
+    # сохранённых параметров, записывал их: у vkr_defense_fast (1/2 минуты)
+    # сроки молча становились 7/14 минут (найдено на демонстрации E15, 25.10.2026).
     adapter = AnalystAdapterAgent(
         adapter_jid, PASSWORD, settings.database_url,
         recipient_jid=interface_jid, notify_jids=[], decision_timeout=wait_seconds,
+        default_params=reg.default_params,
     )
     await adapter.start(auto_register=True)
 
@@ -119,7 +129,16 @@ async def main(process_key: str, exclude: list[str], wait_seconds: float,
         "внутри этого окна: агент этого скрипта отключится по истечении времени и уже не увидит "
         "ваш более поздний ответ — постоянного рантайма агентов в прототипе нет (см. README)."
     )
-    result = await adapter.process_cycle(process_key, reg.bpmn_file, control_points, case_ids=case_ids, mode="propose")
+    # E15: анализ по текущей версии модели — с контрольными точками, добавленными
+    # прошлыми корректировками; шаги без контроля — с нормой длительности.
+    model_version, _ = current_version(settings.database_url, process_key)
+    print(f"Версия модели: v{model_version}")
+    result = await adapter.process_cycle(
+        process_key, current_model_file(settings.database_url, process_key),
+        control_points_for(settings.database_url, process_key, control_points),
+        case_ids=case_ids, mode="propose",
+        monitored_steps=_MONITORED_BY_PROCESS.get(process_key), norm=step_norm(settings.database_url, process_key),
+    )
 
     print(f"n_cases (в журнале, включая активные): {result.report.n_cases}")
     print(f"fitness:                               {result.report.fitness}")
@@ -127,6 +146,10 @@ async def main(process_key: str, exclude: list[str], wait_seconds: float,
     print("\nПо контрольным точкам:")
     for task, stats in result.report.control_points.items():
         print(f"  {stats}")
+    if result.report.monitored_steps:
+        print("Шаги без контрольной точки:")
+        for stats in result.report.monitored_steps.values():
+            print(f"  {stats}")
 
     print(f"\nПредложено корректировок: {len(result.proposed)}")
     for c in result.proposed:

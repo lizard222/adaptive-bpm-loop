@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- СГЕНЕРИРОВАНО bpmn/demo/build_vkr_defense.py — не редактировать вручную.
+     Рабочая модель «Защита ВКР» (vkr_defense_fast): защита одного студента.
+     Версия со структурной адаптацией: добавлены контрольные точки на supervisor_review. Таймеры
+     в МИНУТАХ (reminder_days/escalation_days передаются через
+     Orchestrator.start_instance(initial_data=...); дефолтов в выражениях нет —
+     забытый параметр должен падать, а не тихо брать случайное значение).
+     Напоминание не прерывает шаг; эскалация прерывающая и завершает экземпляр —
+     упрощение рабочей модели для измеримости (в to-be эскалация необрывающая).
+     Шаги:
+       approve_topics           Утверждение тем ВКР — Секретарь кафедры [контрольная точка]
+       report_2                 Предзащита — Руководитель ВКР [срок от даты]
+       publish_for_normcontrol  Публикация ПЗ и ТЗ в Moodle для нормоконтроля — Студент [контрольная точка]
+       normcontrol              Нормоконтроль — Нормоконтролёр [контрольная точка]
+       publish_final            Публикация финальных версий в Moodle — Студент [срок от даты]
+       supervisor_review        Отзыв руководителя и рецензия — Руководитель ВКР [контрольная точка добавлена корректировкой]
+       admission_order          Приказ о допуске к защите — Секретарь кафедры [срок от даты]
+       defense                  Защита ВКР — Секретарь кафедры [срок от даты]
+     [срок от даты] — таймеры timeDate от дат предзащиты/защиты конкретного
+     студента (mining.control_points.VKR_DEFENSE_DATE_POINTS, считает
+     api/milestones.py): эскалация необрывающая, в контур адаптации не входят. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_vkr_defense_fast" targetNamespace="http://adaptive-bpm-loop/vkr_defense_fast">
+  <bpmn:process id="vkr_defense_fast" isExecutable="true">
+    <bpmn:laneSet id="lanes">
+      <bpmn:lane id="lane_secretary" name="Секретарь кафедры"><bpmn:flowNodeRef>approve_topics</bpmn:flowNodeRef><bpmn:flowNodeRef>admission_order</bpmn:flowNodeRef><bpmn:flowNodeRef>defense</bpmn:flowNodeRef></bpmn:lane>
+      <bpmn:lane id="lane_supervisor" name="Руководитель ВКР"><bpmn:flowNodeRef>report_2</bpmn:flowNodeRef><bpmn:flowNodeRef>supervisor_review</bpmn:flowNodeRef></bpmn:lane>
+      <bpmn:lane id="lane_student" name="Студент"><bpmn:flowNodeRef>publish_for_normcontrol</bpmn:flowNodeRef><bpmn:flowNodeRef>publish_final</bpmn:flowNodeRef></bpmn:lane>
+      <bpmn:lane id="lane_normcontrol" name="Нормоконтролёр"><bpmn:flowNodeRef>normcontrol</bpmn:flowNodeRef></bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="start"/>
+    <bpmn:userTask id="approve_topics" name="Утверждение тем ВКР (тест)"/>
+    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="approve_topics"/>
+    <bpmn:boundaryEvent id="remind_topics_timer" attachedToRef="approve_topics" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{reminder_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_topics" name="Напоминание: Утверждение тем ВКР"><bpmn:script>remind_topics_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_topics"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="remind_topics_timer" targetRef="remind_topics"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="remind_topics" targetRef="end_remind_topics"/>
+    <bpmn:boundaryEvent id="escalate_topics_timer" attachedToRef="approve_topics" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{escalation_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_topics" name="Эскалация: Утверждение тем ВКР"><bpmn:script>escalate_topics_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_topics"/>
+    <bpmn:sequenceFlow id="f4" sourceRef="escalate_topics_timer" targetRef="escalate_topics"/>
+    <bpmn:sequenceFlow id="f5" sourceRef="escalate_topics" targetRef="end_escalate_topics"/>
+    <bpmn:userTask id="report_2" name="Предзащита (тест)"/>
+    <bpmn:sequenceFlow id="f6" sourceRef="approve_topics" targetRef="report_2"/>
+    <bpmn:userTask id="publish_for_normcontrol" name="Публикация ПЗ и ТЗ в Moodle для нормоконтроля (тест)"/>
+    <bpmn:sequenceFlow id="f7" sourceRef="report_2" targetRef="publish_for_normcontrol"/>
+    <bpmn:boundaryEvent id="remind_publish_timer" attachedToRef="publish_for_normcontrol" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{reminder_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_publish" name="Напоминание: Публикация ПЗ и ТЗ в Moodle для нормоконтроля"><bpmn:script>remind_publish_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_publish"/>
+    <bpmn:sequenceFlow id="f8" sourceRef="remind_publish_timer" targetRef="remind_publish"/>
+    <bpmn:sequenceFlow id="f9" sourceRef="remind_publish" targetRef="end_remind_publish"/>
+    <bpmn:boundaryEvent id="escalate_publish_timer" attachedToRef="publish_for_normcontrol" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{escalation_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_publish" name="Эскалация: Публикация ПЗ и ТЗ в Moodle для нормоконтроля"><bpmn:script>escalate_publish_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_publish"/>
+    <bpmn:sequenceFlow id="f10" sourceRef="escalate_publish_timer" targetRef="escalate_publish"/>
+    <bpmn:sequenceFlow id="f11" sourceRef="escalate_publish" targetRef="end_escalate_publish"/>
+    <bpmn:userTask id="normcontrol" name="Нормоконтроль (тест)"/>
+    <bpmn:sequenceFlow id="f12" sourceRef="publish_for_normcontrol" targetRef="normcontrol"/>
+    <bpmn:boundaryEvent id="remind_normcontrol_timer" attachedToRef="normcontrol" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{reminder_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_normcontrol" name="Напоминание: Нормоконтроль"><bpmn:script>remind_normcontrol_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_normcontrol"/>
+    <bpmn:sequenceFlow id="f13" sourceRef="remind_normcontrol_timer" targetRef="remind_normcontrol"/>
+    <bpmn:sequenceFlow id="f14" sourceRef="remind_normcontrol" targetRef="end_remind_normcontrol"/>
+    <bpmn:boundaryEvent id="escalate_normcontrol_timer" attachedToRef="normcontrol" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{escalation_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_normcontrol" name="Эскалация: Нормоконтроль"><bpmn:script>escalate_normcontrol_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_normcontrol"/>
+    <bpmn:sequenceFlow id="f15" sourceRef="escalate_normcontrol_timer" targetRef="escalate_normcontrol"/>
+    <bpmn:sequenceFlow id="f16" sourceRef="escalate_normcontrol" targetRef="end_escalate_normcontrol"/>
+    <bpmn:userTask id="publish_final" name="Публикация финальных версий в Moodle (тест)"/>
+    <bpmn:sequenceFlow id="f17" sourceRef="normcontrol" targetRef="publish_final"/>
+    <bpmn:userTask id="supervisor_review" name="Отзыв руководителя и рецензия (тест)"/>
+    <bpmn:sequenceFlow id="f18" sourceRef="publish_final" targetRef="supervisor_review"/>
+    <bpmn:boundaryEvent id="remind_supervisor_review_timer" attachedToRef="supervisor_review" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{reminder_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_supervisor_review" name="Напоминание: Отзыв руководителя и рецензия"><bpmn:script>remind_supervisor_review_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_supervisor_review"/>
+    <bpmn:sequenceFlow id="f19" sourceRef="remind_supervisor_review_timer" targetRef="remind_supervisor_review"/>
+    <bpmn:sequenceFlow id="f20" sourceRef="remind_supervisor_review" targetRef="end_remind_supervisor_review"/>
+    <bpmn:boundaryEvent id="escalate_supervisor_review_timer" attachedToRef="supervisor_review" cancelActivity="true">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">f'PT{escalation_days}M'</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_supervisor_review" name="Эскалация: Отзыв руководителя и рецензия"><bpmn:script>escalate_supervisor_review_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_supervisor_review"/>
+    <bpmn:sequenceFlow id="f21" sourceRef="escalate_supervisor_review_timer" targetRef="escalate_supervisor_review"/>
+    <bpmn:sequenceFlow id="f22" sourceRef="escalate_supervisor_review" targetRef="end_escalate_supervisor_review"/>
+    <bpmn:userTask id="admission_order" name="Приказ о допуске к защите (тест)"/>
+    <bpmn:sequenceFlow id="f23" sourceRef="supervisor_review" targetRef="admission_order"/>
+    <bpmn:userTask id="defense" name="Защита ВКР (тест)"/>
+    <bpmn:sequenceFlow id="f24" sourceRef="admission_order" targetRef="defense"/>
+    <bpmn:boundaryEvent id="remind_report_2_timer" attachedToRef="report_2" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('report_2_remind_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_report_2" name="Напоминание: Предзащита"><bpmn:script>remind_report_2_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_report_2"/>
+    <bpmn:sequenceFlow id="f25" sourceRef="remind_report_2_timer" targetRef="remind_report_2"/>
+    <bpmn:sequenceFlow id="f26" sourceRef="remind_report_2" targetRef="end_remind_report_2"/>
+    <bpmn:boundaryEvent id="escalate_report_2_timer" attachedToRef="report_2" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('report_2_due_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_report_2" name="Срок истёк: Предзащита"><bpmn:script>escalate_report_2_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_report_2"/>
+    <bpmn:sequenceFlow id="f27" sourceRef="escalate_report_2_timer" targetRef="escalate_report_2"/>
+    <bpmn:sequenceFlow id="f28" sourceRef="escalate_report_2" targetRef="end_escalate_report_2"/>
+    <bpmn:boundaryEvent id="remind_publish_final_timer" attachedToRef="publish_final" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('publish_final_remind_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_publish_final" name="Напоминание: Публикация финальных версий в Moodle"><bpmn:script>remind_publish_final_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_publish_final"/>
+    <bpmn:sequenceFlow id="f29" sourceRef="remind_publish_final_timer" targetRef="remind_publish_final"/>
+    <bpmn:sequenceFlow id="f30" sourceRef="remind_publish_final" targetRef="end_remind_publish_final"/>
+    <bpmn:boundaryEvent id="escalate_publish_final_timer" attachedToRef="publish_final" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('publish_final_due_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_publish_final" name="Срок истёк: Публикация финальных версий в Moodle"><bpmn:script>escalate_publish_final_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_publish_final"/>
+    <bpmn:sequenceFlow id="f31" sourceRef="escalate_publish_final_timer" targetRef="escalate_publish_final"/>
+    <bpmn:sequenceFlow id="f32" sourceRef="escalate_publish_final" targetRef="end_escalate_publish_final"/>
+    <bpmn:boundaryEvent id="remind_admission_timer" attachedToRef="admission_order" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('admission_order_remind_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_admission" name="Напоминание: Приказ о допуске к защите"><bpmn:script>remind_admission_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_admission"/>
+    <bpmn:sequenceFlow id="f33" sourceRef="remind_admission_timer" targetRef="remind_admission"/>
+    <bpmn:sequenceFlow id="f34" sourceRef="remind_admission" targetRef="end_remind_admission"/>
+    <bpmn:boundaryEvent id="escalate_admission_timer" attachedToRef="admission_order" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('admission_order_due_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_admission" name="Срок истёк: Приказ о допуске к защите"><bpmn:script>escalate_admission_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_admission"/>
+    <bpmn:sequenceFlow id="f35" sourceRef="escalate_admission_timer" targetRef="escalate_admission"/>
+    <bpmn:sequenceFlow id="f36" sourceRef="escalate_admission" targetRef="end_escalate_admission"/>
+    <bpmn:boundaryEvent id="remind_defense_timer" attachedToRef="defense" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('defense_remind_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="remind_defense" name="Напоминание: Защита ВКР"><bpmn:script>remind_defense_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_remind_defense"/>
+    <bpmn:sequenceFlow id="f37" sourceRef="remind_defense_timer" targetRef="remind_defense"/>
+    <bpmn:sequenceFlow id="f38" sourceRef="remind_defense" targetRef="end_remind_defense"/>
+    <bpmn:boundaryEvent id="escalate_defense_timer" attachedToRef="defense" cancelActivity="false">
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">globals().get('defense_due_at', '9999-12-31T00:00:00+00:00')</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:scriptTask id="escalate_defense" name="Срок истёк: Защита ВКР"><bpmn:script>escalate_defense_done = True</bpmn:script></bpmn:scriptTask>
+    <bpmn:endEvent id="end_escalate_defense"/>
+    <bpmn:sequenceFlow id="f39" sourceRef="escalate_defense_timer" targetRef="escalate_defense"/>
+    <bpmn:sequenceFlow id="f40" sourceRef="escalate_defense" targetRef="end_escalate_defense"/>
+    <bpmn:endEvent id="end_main"/>
+    <bpmn:sequenceFlow id="f41" sourceRef="defense" targetRef="end_main"/>
+  </bpmn:process>
+</bpmn:definitions>

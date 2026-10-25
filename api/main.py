@@ -18,6 +18,7 @@ from .config import settings
 from .corrections import router as corrections_router
 from .dashboard import router as dashboard_router
 from .documents import router as documents_router
+from .milestones import router as milestones_router
 from .processes import router as processes_router
 from .student import router as student_router
 from .tasks import router as tasks_router
@@ -33,6 +34,7 @@ app.include_router(dashboard_router)
 app.include_router(documents_router)
 app.include_router(processes_router)
 app.include_router(student_router)
+app.include_router(milestones_router)
 
 
 @app.on_event("startup")

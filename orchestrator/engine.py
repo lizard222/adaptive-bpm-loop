@@ -25,10 +25,15 @@ except ImportError:
     from SpiffWorkflow.task import TaskState
 
 from SpiffWorkflow.bpmn.specs.defaults import BoundaryEvent
+from SpiffWorkflow.bpmn.specs.event_definitions.timer import TimeDateEventDefinition, TimerEventDefinition
 
 from .specs import load_spec_with_subprocesses
 
 _SERIALIZER = BpmnWorkflowSerializer()
+
+# Таймер timeDate на этот год и позже — «дата не назначена» (модель подставляет
+# недостижимый момент, см. mining.control_points.UNSET_DATE): срока у шага нет.
+_UNSET_TIMER_YEAR = 9999
 
 
 class InstanceNotFound(Exception):
@@ -79,7 +84,10 @@ def _boundary_timers(task) -> list[dict]:
             continue
         definition = getattr(sibling.task_spec, "event_definition", None)
         fire_at = sibling.internal_data.get("event_value") if definition is not None else None
-        if fire_at is None or "Timer" not in type(definition).__name__:
+        # по типу, не по имени класса: у таймера на дату класс TimeDateEventDefinition — без «Timer»
+        if fire_at is None or not isinstance(definition, TimerEventDefinition):
+            continue
+        if datetime.fromisoformat(fire_at).year >= _UNSET_TIMER_YEAR:
             continue
         timers.append({
             "name": sibling.task_spec.name,
@@ -116,9 +124,16 @@ class Orchestrator:
             (case_id, process_key, status, payload),
         )
 
-    def _load(self, conn: psycopg.Connection, case_id: str) -> tuple[BpmnWorkflow, str]:
+    def _load(self, conn: psycopg.Connection, case_id: str, for_update: bool = False) -> tuple[BpmnWorkflow, str]:
+        """for_update — для изменяющих операций (tick, complete_task, update_data):
+        строка экземпляра блокируется до конца транзакции. Без блокировки два
+        процесса (фоновая проверка таймеров в uvicorn и выполнение шага из UI
+        или скрипта) читали одно состояние, и запись второго затирала первого —
+        выполненный шаг мог «пропасть» из состояния, оставшись в журнале."""
         row = conn.execute(
-            "SELECT process_key, state::text FROM process_instances WHERE case_id = %s", (case_id,)
+            "SELECT process_key, state::text FROM process_instances WHERE case_id = %s"
+            + (" FOR UPDATE" if for_update else ""),
+            (case_id,),
         ).fetchone()
         if row is None:
             raise InstanceNotFound(case_id)
@@ -201,10 +216,47 @@ class Orchestrator:
         """Проверяет таймеры и продвигает экземпляр (см. FINDINGS T-28: таймеры пассивны,
         требуют периодического refresh)."""
         with self._connect() as conn:
-            wf, process_key = self._load(conn, case_id)
+            wf, process_key = self._load(conn, case_id, for_update=True)
             before = _snapshot(wf)
             wf.refresh_waiting_tasks()
             wf.do_engine_steps()
+            self._log_transitions(conn, case_id, process_key, before, wf)
+            self._persist(conn, case_id, process_key, wf)
+            conn.commit()
+
+    def update_data(self, case_id: str, data: dict, activity: str, resource: str | None = None,
+                    attributes: dict | None = None) -> None:
+        """Меняет данные идущего экземпляра (E14: даты предзащиты/защиты).
+
+        Данные пишутся во все незавершённые задачи: ожидающие и готовые —
+        чтобы новые значения увидели взведённые таймеры, будущие получат их
+        от предшественников (SpiffWorkflow наследует данные родителя, когда
+        задача становится готовой). У ожидающих таймеров timeDate
+        сбрасывается вычисленный момент — движок пересчитает его из новых
+        данных на ближайшей проверке (refresh ниже), то есть перенос даты
+        переносит и срок. Таймеры-длительности (P7D от начала шага) не
+        трогаются: их момент от данных не зависит, сброс начал бы отсчёт заново.
+        Если новый момент уже в прошлом — таймер срабатывает сразу, переход
+        пишется в журнал, как при обычной проверке таймеров."""
+        with self._connect() as conn:
+            wf, process_key = self._load(conn, case_id, for_update=True)
+            for task in wf.get_tasks():
+                if not task.has_state(TaskState.FINISHED_MASK):
+                    task.data.update(data)
+            for task in wf.get_tasks(state=TaskState.WAITING):
+                if isinstance(getattr(task.task_spec, "event_definition", None), TimeDateEventDefinition):
+                    task.internal_data.pop("event_value", None)
+                    task.internal_data.pop("event_fired", None)
+                    # при проверке ожидающая задача заново наследует данные родителя
+                    # (уже завершённого узла BoundaryEventSplit) — без этого старые
+                    # даты родителя перезаписали бы новые
+                    if task.parent is not None:
+                        task.parent.data.update(data)
+            before = _snapshot(wf)
+            wf.refresh_waiting_tasks()
+            wf.do_engine_steps()
+            self._log_event(conn, case_id, process_key, activity, lifecycle="complete",
+                             resource=resource, attributes=attributes)
             self._log_transitions(conn, case_id, process_key, before, wf)
             self._persist(conn, case_id, process_key, wf)
             conn.commit()
@@ -244,7 +296,7 @@ class Orchestrator:
         потока: у READY-задачи нет "агента", ожидающего ответа, в отличие от
         предложений корректировок (там мост — agents/interface_agent.py)."""
         with self._connect() as conn:
-            wf, process_key = self._load(conn, case_id)
+            wf, process_key = self._load(conn, case_id, for_update=True)
             ready = [t for t in wf.get_tasks(state=TaskState.READY) if t.task_spec.name == task_name]
             if not ready:
                 raise TaskNotReady(f"{task_name} не в состоянии READY для {case_id}")

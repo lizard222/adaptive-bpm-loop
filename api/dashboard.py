@@ -20,6 +20,7 @@ from __future__ import annotations
 import psycopg
 from fastapi import APIRouter, Depends
 
+from mining.control_points import VKR_DEFENSE_DATE_POINTS, VKR_DEFENSE_MONITORED_STEPS, added_control_point
 from orchestrator.process_registry import PROCESS_REGISTRY
 
 from .auth import STAFF_ROLES, CurrentUser, require_role
@@ -39,6 +40,11 @@ _CONTROLLER_ACTIVITIES = (
     "remind", "escalate", "remind_calc", "escalate_calc", "remind_dist", "escalate_dist",
     "remind_topics", "escalate_topics", "remind_normcontrol", "escalate_normcontrol",
     "remind_publish", "escalate_publish",
+    # E14: сроки от дат предзащиты/защиты
+    *(a for p in VKR_DEFENSE_DATE_POINTS for a in (p.reminder_activity, p.escalation_activity)),
+    # E15: точки, которые может добавить структурная адаптация
+    *(a for s in VKR_DEFENSE_MONITORED_STEPS
+      for a in (added_control_point(s.task).reminder_activity, added_control_point(s.task).escalation_activity)),
 )
 
 # Только реальные агенты прототипа — никогда не выдуманные ("предиктор"/
@@ -116,7 +122,16 @@ def summary(include_all: bool = False, user: CurrentUser = Depends(require_role(
             reports_by_key[r[1]] = {
                 "report_id": r[0], "n_cases": r[2], "fitness": r[3], "precision": r[4],
                 "created_at": r[6].isoformat(), "control_points": control_points,
+                "monitored_steps": list((r[5].get("monitored_steps") or {}).values()),
             }
+        model_rows = conn.execute(
+            "SELECT DISTINCT ON (process_key) process_key, version, added_checkpoints, created_at "
+            "FROM process_model_versions ORDER BY process_key, version DESC"
+        ).fetchall()
+        models_by_key = {
+            r[0]: {"version": r[1], "added_checkpoints": list(r[2]), "created_at": r[3].isoformat()}
+            for r in model_rows
+        }
         decision_rows = conn.execute(
             "SELECT id, process_key, kind, target, status, decided_by, created_at, decided_at "
             "FROM pending_decisions WHERE status != 'pending' "
@@ -153,6 +168,8 @@ def summary(include_all: bool = False, user: CurrentUser = Depends(require_role(
             "active_instances": active_counts.get(key, 0),
             "completed_instances": completed_counts.get(key, 0),
             "params": params_by_key.get(key),
+            # E15: версия модели (0 — базовая, без структурных изменений)
+            "model": models_by_key.get(key, {"version": 0, "added_checkpoints": [], "created_at": None}),
             "latest_report": reports_by_key.get(key),
             "first_seen": seen_by_key.get(key, {}).get("first_seen"),
             "last_seen": seen_by_key.get(key, {}).get("last_seen"),

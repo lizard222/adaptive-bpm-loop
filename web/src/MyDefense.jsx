@@ -13,6 +13,7 @@ import { useToast } from "./components/Toast.jsx";
 import { useApiData } from "./useApiData.js";
 import { fmtDate } from "./format.js";
 import { relativeTime } from "./time.js";
+import { MILESTONE_LABELS } from "./milestones.js";
 
 const URGENCY_LABEL = { good: "В срок", warning: "Скоро срок", critical: "Срок истёк" };
 
@@ -97,6 +98,7 @@ export default function MyDefense() {
           </Button>
         }
       >
+        {defense.milestones_supported && <KeyDates milestones={defense.milestones} />}
         {current ? (
           <CurrentStage stage={current} onComplete={() => setConfirmStep(current)} />
         ) : (
@@ -129,7 +131,17 @@ export default function MyDefense() {
                 <span className="mt-1.5">
                   <StatusDot tone={f.tone} />
                 </span>
-                <span className="text-ink dark:text-ink-dark">{f.text}</span>
+                <span className="text-ink dark:text-ink-dark">
+                  {f.text}
+                  {f.at && (
+                    <span className="tabular-nums">
+                      {": "}
+                      {f.from && <span className="text-ink-muted line-through">{fmtDate(f.from)}</span>}
+                      {f.from && " → "}
+                      {fmtDate(f.at)}
+                    </span>
+                  )}
+                </span>
                 <span className="ml-auto whitespace-nowrap text-xs text-ink-muted" title={fmtDate(f.ts)}>
                   {relativeTime(f.ts)}
                 </span>
@@ -175,6 +187,14 @@ function CurrentStage({ stage, onComplete }) {
         <span className="text-xs text-ink-muted">· по регламенту кафедры: {stage.catalog_due}</span>
       </div>
 
+      {stage.planned_at && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-ink-muted">Плановая дата:</span>
+          <span className="tabular-nums text-ink dark:text-ink-dark">{fmtDate(stage.planned_at)}</span>
+          <span className="text-xs text-ink-muted">({stage.planned_rule})</span>
+        </div>
+      )}
+
       <p className="max-w-3xl text-sm text-ink-secondary dark:text-ink-dark-secondary">{stage.what_to_do}</p>
 
       <Documents items={stage.documents} />
@@ -186,6 +206,26 @@ function CurrentStage({ stage, onComplete }) {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+// Даты назначает кафедра (E14); пока не назначены — честно «не назначена», без прикидок.
+function KeyDates({ milestones }) {
+  return (
+    <div className="mb-4 grid grid-cols-1 gap-3 border-b border-gridline pb-4 sm:grid-cols-2 dark:border-white/10">
+      {Object.entries(MILESTONE_LABELS).map(([key, label]) => (
+        <div key={key}>
+          <div className="text-xs font-medium uppercase tracking-wide text-ink-muted">{label}</div>
+          <div className="mt-0.5 text-base tabular-nums text-ink dark:text-ink-dark">
+            {milestones?.[key] ? (
+              fmtDate(milestones[key])
+            ) : (
+              <span className="text-sm text-ink-secondary dark:text-ink-dark-secondary">дата пока не назначена</span>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -236,7 +276,15 @@ function StageRow({ stage, last }) {
           {stage.is_mine && <Badge tone="accent">ваш шаг</Badge>}
           <span className="ml-auto text-xs text-ink-muted">{open ? "свернуть" : "подробнее"}</span>
         </button>
-        <div className="text-xs text-ink-muted">{stage.actor}</div>
+        <div className="text-xs text-ink-muted">
+          {stage.actor}
+          {stage.planned_at && (
+            <span className="tabular-nums">
+              {" · "}
+              {fmtDate(stage.planned_at)} ({stage.planned_rule})
+            </span>
+          )}
+        </div>
         {open && (
           <div className="mt-2 flex flex-col gap-2 rounded-md border border-gridline p-3 dark:border-white/10">
             <p className="text-sm text-ink-secondary dark:text-ink-dark-secondary">{stage.what_to_do}</p>

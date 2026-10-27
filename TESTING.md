@@ -6,6 +6,8 @@
 
 ## 0. Перед началом: инфраструктура
 
+Проще всего — одной командой из папки `adaptive-bpm-loop`: `powershell -ExecutionPolicy Bypass -File .\start-dev.ps1` (контейнеры, схема базы, backend, frontend, браузер; подробнее — README, раздел «Запуск»). Ниже — то же вручную.
+
 ```bash
 docker compose ps          # postgres/prosody/redis — все "healthy"
 # если не подняты:

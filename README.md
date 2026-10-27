@@ -104,14 +104,64 @@ templates/    шаблоны документов кафедры (.docx) + ре�
 docs/         документация проекта
 ```
 
-## Быстрый старт (планируемый)
+## Запуск
+
+### Одной командой (Windows)
+
+Из папки `adaptive-bpm-loop` в PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-dev.ps1
+```
+
+Скрипт сам: запустит Docker Desktop, если он выключен (до 3 минут); поднимет контейнеры (PostgreSQL, Redis, Prosody); докатит схему базы (`db/init`, повторно безопасно); откроет **два окна** — backend (порт 8000) и frontend (порт 5173) — и браузер на **http://localhost:5173**. Окна backend и frontend не закрывайте, пока работаете: в окне backend видны запросы и ошибки, а ещё в нём работает фоновая проверка таймеров — без него напоминания и эскалации не срабатывают. Если что-то уже запущено, скрипт это пропустит.
+
+Остановить:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\stop-dev.ps1              # backend и frontend
+powershell -ExecutionPolicy Bypass -File .\stop-dev.ps1 -Containers  # и контейнеры (данные сохраняются)
+```
+
+**Вход** (логин = пароль): `secretary` — секретарь, `supervisor` — руководитель ВКР, `normcontrol` — нормоконтролёр, `student` — студент, `dept_head` — заведующий кафедрой (корректировки), `admin` — всё.
+
+### Вручную (если скрипт не подходит)
+
+Три терминала, каждый из папки `adaptive-bpm-loop`:
 
 ```bash
-git clone https://github.com/<user>/adaptive-bpm-loop && cd adaptive-bpm-loop
-docker compose up            # PostgreSQL + Redis + API + агенты + фронтенд
-python -m simgen --cycles 8 --seed 42   # имитация 8 семестров
-python -m mining.report                 # отчёт: метрики по циклам, до/после адаптации
+# 1. Контейнеры (Docker Desktop должен быть запущен)
+docker compose up -d
+
+# 2. Backend — оставить окно открытым
+PYTHONIOENCODING=utf-8 python -m uvicorn api.main:app --port 8000    # в PowerShell: $env:PYTHONIOENCODING="utf-8"; python -m uvicorn api.main:app --port 8000
+
+# 3. Frontend — оставить окно открытым
+cd web && npm run dev
 ```
+
+Затем открыть http://localhost:5173.
+
+### Первый раз на новой машине
+
+Нужны Docker Desktop, Python 3.11+, Node.js 18+. Один раз установить зависимости:
+
+```bash
+pip install -r requirements.txt
+cd web && npm install
+```
+
+### Если не работает
+
+| Симптом | Причина и что делать |
+|---|---|
+| `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop не запущен — запустить его (скрипт делает это сам) |
+| Страница не открывается / «Failed to fetch» на экранах | не запущен backend или frontend — запустить `start-dev.ps1` ещё раз |
+| Ошибка про отсутствующую таблицу (`case_milestones`, `process_model_versions`…) | база создана до появления новых файлов в `db/init` — `start-dev.ps1` докатывает их сам |
+| Кракозябры вместо кириллицы в Git Bash | перед командой `PYTHONIOENCODING=utf-8` |
+| Скрипт не запускается: «выполнение сценариев отключено» | запускать именно так: `powershell -ExecutionPolicy Bypass -File .\start-dev.ps1` |
+
+Сценарии ручной проверки по ролям — `TESTING.md`; демонстрация структурной адаптации — `python -m agents.demo_structural_adaptation` (TESTING.md §6).
 
 ## Порядок разработки и статус
 
